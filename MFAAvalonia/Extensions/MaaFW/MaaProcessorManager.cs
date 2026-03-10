@@ -7,6 +7,8 @@ using MFAAvalonia.Configuration;
 using MFAAvalonia.Helper;
 using MFAAvalonia.Helper.Converters;
 using MFAAvalonia.ViewModels.Pages;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace MFAAvalonia.Extensions.MaaFW;
 
@@ -21,6 +23,7 @@ public sealed class MaaProcessorManager
     private readonly List<string> _instanceOrder = new();
     private readonly Dictionary<string, TaskQueueViewModel> _viewModels = new();
     private readonly HashSet<string> _initializedInstances = new();
+    private readonly Dictionary<string, int> _instancePresetIndexes = new(); // 存储实例对应的 preset 索引
     private readonly object _lock = new();
 
     public MaaProcessor Current { get; private set; }
@@ -28,10 +31,11 @@ public sealed class MaaProcessorManager
     private MaaProcessorManager()
     {
         // 构造函数初始化默认状态，后续 LoadInstanceConfig 可覆盖
+        // 注意：不调用 SetValue 写磁盘，避免每次启动都创建 default.json
+        // 导致 ScanUnregisteredInstanceFiles 误将其识别为新实例
         Current = CreateInstanceInternal("default", setCurrent: true);
         var defaultName = $"{LangKeys.Config.ToLocalization()} 1";
         _instanceNames["default"] = defaultName;
-        Current.InstanceConfiguration.SetValue(ConfigurationKeys.InstanceName, defaultName);
         _instanceOrder.Add("default");
     }
 
@@ -84,10 +88,14 @@ public sealed class MaaProcessorManager
                 _instanceOrder.Add(instanceId);
                 if (!_instanceNames.ContainsKey(instanceId))
                 {
-                    // 使用i18n的"配置+数字"格式命名
-                    var configName = LangKeys.Config.ToLocalization();
-                    var nextNumber = GetNextInstanceNumber();
-                    var name = $"{configName} {nextNumber}";
+                    var name = InstanceConfiguration.ReadValueFromFile(instanceId, ConfigurationKeys.InstanceName);
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        var configName = LangKeys.Config.ToLocalization();
+                        var nextNumber = GetNextInstanceNumber();
+                        name = $"{configName} {nextNumber}";
+                    }
+
                     _instanceNames[instanceId] = name;
                     processor.InstanceConfiguration.SetValue(ConfigurationKeys.InstanceName, name);
                 }
@@ -108,8 +116,6 @@ public sealed class MaaProcessorManager
 
     public bool SwitchCurrent(string instanceId)
     {
-        string? list, order, lastActive;
-
         lock (_lock)
         {
             if (!_instances.TryGetValue(instanceId, out var processor))
@@ -117,20 +123,18 @@ public sealed class MaaProcessorManager
 
             Current = processor;
 
-            // 在锁内捕获数据快照，锁外异步写入，避免阻塞 UI 线程
-            list = string.Join(",", _instanceOrder);
-            order = string.Join(",", _instanceOrder);
-            lastActive = Current.InstanceId;
+            SaveInstanceConfig();
         }
 
-        Task.Run(() =>
-        {
-            GlobalConfiguration.SetValue(ConfigurationKeys.InstanceList, list);
-            GlobalConfiguration.SetValue(ConfigurationKeys.InstanceOrder, order);
-            GlobalConfiguration.SetValue(ConfigurationKeys.LastActiveInstance, lastActive);
-        });
-
         return true;
+    }
+
+    public void PersistCurrentSelection()
+    {
+        lock (_lock)
+        {
+            SaveInstanceConfig();
+        }
     }
 
     private MaaProcessor CreateInstanceInternal(string instanceId, bool setCurrent)
@@ -208,16 +212,87 @@ public sealed class MaaProcessorManager
         return next;
     }
 
-    public MFAAvalonia.ViewModels.Pages.TaskQueueViewModel GetViewModel(string instanceId)
+    private string CreateDefaultInstanceName()
+    {
+        return $"{LangKeys.Config.ToLocalization()} {GetNextInstanceNumber()}";
+    }
+
+    private static bool TryValidateInstanceFile(string instanceId, out string reason)
+    {
+        var filePath = Path.Combine(InstanceConfiguration.InstancesDir, $"{instanceId}.json");
+        reason = string.Empty;
+
+        try
+        {
+            if (!File.Exists(filePath))
+            {
+                reason = "实例文件不存在";
+                return false;
+            }
+
+            var json = File.ReadAllText(filePath);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                reason = "实例文件为空";
+                return false;
+            }
+
+            var token = JToken.Parse(json);
+            if (token is not JObject root)
+            {
+                reason = "实例文件根节点不是 JSON 对象";
+                return false;
+            }
+
+            if (root.TryGetValue(ConfigurationKeys.InstanceName, out var instanceNameToken)
+                && instanceNameToken.Type is not JTokenType.String and not JTokenType.Null)
+            {
+                reason = $"{ConfigurationKeys.InstanceName} 字段类型无效: {instanceNameToken.Type}";
+                return false;
+            }
+
+            if (root.TryGetValue(ConfigurationKeys.TaskItems, out var taskItemsToken)
+                && taskItemsToken.Type is not JTokenType.Array and not JTokenType.Null)
+            {
+                reason = $"{ConfigurationKeys.TaskItems} 字段类型无效: {taskItemsToken.Type}";
+                return false;
+            }
+
+            if (root.TryGetValue(ConfigurationKeys.CurrentTasks, out var currentTasksToken)
+                && currentTasksToken.Type is not JTokenType.Array and not JTokenType.Null)
+            {
+                reason = $"{ConfigurationKeys.CurrentTasks} 字段类型无效: {currentTasksToken.Type}";
+                return false;
+            }
+
+            return true;
+        }
+        catch (JsonException ex)
+        {
+            reason = $"JSON 解析失败: {ex.Message}";
+            return false;
+        }
+        catch (Exception ex)
+        {
+            reason = $"读取实例文件失败: {ex.Message}";
+            return false;
+        }
+    }
+
+    public MFAAvalonia.ViewModels.Pages.TaskQueueViewModel? GetViewModel(string instanceId)
     {
         lock (_lock)
         {
-            if (!_viewModels.TryGetValue(instanceId, out var vm))
-            {
-                vm = new MFAAvalonia.ViewModels.Pages.TaskQueueViewModel(instanceId);
-                _viewModels[instanceId] = vm;
-                _instances[instanceId] = vm.Processor;
-            }
+            if (_viewModels.TryGetValue(instanceId, out var vm))
+                return vm;
+
+            // 已被移除的实例不再自动创建
+            if (!_instanceOrder.Contains(instanceId))
+                return null;
+
+            vm = new MFAAvalonia.ViewModels.Pages.TaskQueueViewModel(instanceId);
+            _viewModels[instanceId] = vm;
+            _instances[instanceId] = vm.Processor;
             return vm;
         }
     }
@@ -282,7 +357,7 @@ public sealed class MaaProcessorManager
         return false;
     }
 
-    private void SaveInstanceConfig()
+    private void SaveInstanceConfig(bool saveLastActive = true)
     {
         // 使用 _instanceOrder 作为实例列表源，因为迁移阶段实例已注册到 _instanceOrder 但尚未创建到 _instances
         var list = string.Join(",", _instanceOrder);
@@ -290,7 +365,33 @@ public sealed class MaaProcessorManager
 
         GlobalConfiguration.SetValue(ConfigurationKeys.InstanceList, list);
         GlobalConfiguration.SetValue(ConfigurationKeys.InstanceOrder, order);
+
+        if (!saveLastActive || Current == null)
+            return;
+
+        var lastActiveName = _instanceNames.TryGetValue(Current.InstanceId, out var name)
+            ? name
+            : Current.InstanceId;
+
         GlobalConfiguration.SetValue(ConfigurationKeys.LastActiveInstance, Current.InstanceId);
+        GlobalConfiguration.SetValue(ConfigurationKeys.LastActiveInstanceName, lastActiveName);
+    }
+
+    /// <summary>
+    /// 更新实例顺序（拖拽排序后调用）
+    /// </summary>
+    public void UpdateInstanceOrder(IEnumerable<string> orderedIds)
+    {
+        lock (_lock)
+        {
+            _instanceOrder.Clear();
+            foreach (var id in orderedIds)
+            {
+                if (_instances.ContainsKey(id) || _pendingInstanceIds.Contains(id))
+                    _instanceOrder.Add(id);
+            }
+            SaveInstanceConfig();
+        }
     }
     /// <summary>
     /// 需要延迟加载的实例ID列表
@@ -393,6 +494,7 @@ public sealed class MaaProcessorManager
     {
         var config = ConfigurationManager.Current.Config;
         var prefix = "Instance.";
+        var referencedInstanceIds = GetReferencedLegacyInstanceIds();
 
         // 收集所有 Instance.{id}.{key} 格式的键
         var instanceData = new Dictionary<string, Dictionary<string, object>>();
@@ -432,7 +534,16 @@ public sealed class MaaProcessorManager
 
         foreach (var (instanceId, data) in instanceData)
         {
+            var hasRealInstanceScopedData = data.Keys.Any(key => !string.Equals(key, ConfigurationKeys.InstanceName, StringComparison.Ordinal));
             var instanceFilePath = Path.Combine(instancesDir, $"{instanceId}.json");
+
+            if (!hasRealInstanceScopedData
+                && !File.Exists(instanceFilePath)
+                && !referencedInstanceIds.Contains(instanceId))
+            {
+                LoggerHelper.Info($"[迁移] 跳过孤立实例名称键: {instanceId}（仅存在旧版 Name 键，且未被实例列表引用）");
+                continue;
+            }
 
             // 如果实例文件已存在，合并（不覆盖已有的）
             var existingData = new Dictionary<string, object>();
@@ -470,6 +581,33 @@ public sealed class MaaProcessorManager
             new MaaInterfaceSelectOptionConverter(false));
 
         LoggerHelper.Info("[迁移] 已从 config.json 中清理 scoped keys");
+    }
+
+    private static HashSet<string> GetReferencedLegacyInstanceIds()
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void AddCsv(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return;
+
+            foreach (var item in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (!string.IsNullOrWhiteSpace(item))
+                    ids.Add(item);
+            }
+        }
+
+        AddCsv(GlobalConfiguration.GetValue(ConfigurationKeys.InstanceList, string.Empty));
+        AddCsv(GlobalConfiguration.GetValue(ConfigurationKeys.InstanceOrder, string.Empty));
+
+        var lastActive = GlobalConfiguration.GetValue(ConfigurationKeys.LastActiveInstance, string.Empty);
+        if (!string.IsNullOrWhiteSpace(lastActive))
+            ids.Add(lastActive);
+
+        ids.Add("default");
+        return ids;
     }
 
     /// <summary>
@@ -647,22 +785,148 @@ public sealed class MaaProcessorManager
         // 先迁移旧的 mfa_*.json 配置文件
         MigrateLegacyConfigs();
 
-        var listStr = GlobalConfiguration.GetValue(ConfigurationKeys.InstanceList, "");
+        // 先扫描 instances 目录，获取实际存在的实例文件（这是真实情况）
+        var scannedIds = ScanAllInstanceFiles();
+        LoggerHelper.Info($"[调试] instances 目录中实际存在的实例文件数量: {scannedIds.Count}, ID列表: [{string.Join(", ", scannedIds)}]");
 
-        if (string.IsNullOrEmpty(listStr))
+        // 构造函数创建的 "default" 实例的 GetValue 回退迁移可能已写出 default.json，
+        // 若已存在其他真实实例，则删除该临时文件，防止误识别为用户创建的实例
+        var defaultFilePath = Path.Combine(InstanceConfiguration.InstancesDir, "default.json");
+        if (File.Exists(defaultFilePath)
+            && scannedIds.Contains("default")
+            && scannedIds.Any(id => !string.Equals(id, "default", StringComparison.OrdinalIgnoreCase)))
         {
-            SaveInstanceConfig();
-            return;
+            LoggerHelper.Info("[调试] 检测到临时 default.json，正在删除...");
+            try
+            {
+                File.Delete(defaultFilePath);
+                scannedIds.RemoveAll(id => string.Equals(id, "default", StringComparison.OrdinalIgnoreCase));
+            }
+            catch
+            {
+                /* ignore */
+            }
         }
 
-        var ids = listStr.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        var ids = scannedIds.ToArray();
 
+        // 如果没有任何实例配置，检查是否有 preset，基于 preset 创建初始实例
+        if (ids.Length == 0)
+        {
+            if (MaaProcessor.Interface == null)
+            {
+                LoggerHelper.Info("MaaProcessor.Interface 为 null，正在读取...");
+                MaaProcessor.ReadInterface();
+            }
+
+            LoggerHelper.Info($"MaaProcessor.Interface.Preset 数量: {MaaProcessor.Interface?.Preset?.Count ?? 0}");
+
+            // 检查是否存在 preset 定义
+            if (MaaProcessor.Interface?.Preset is { Count: > 0 } presets)
+            {
+                LoggerHelper.Info($"[初始化] 未找到实例配置，将基于 {presets.Count} 个 preset 创建初始实例");
+
+                lock (_lock)
+                {
+                    // 清理构造函数创建的 default 实例
+                    if (_instances.TryGetValue("default", out var defaultProcessor))
+                    {
+                        defaultProcessor.InstanceConfiguration.DeleteConfigFile();
+                        defaultProcessor.Dispose();
+                        _instances.Remove("default");
+                        _instanceNames.Remove("default");
+                        _instanceOrder.Remove("default");
+                    }
+                    // 为每个 preset 创建一个实例
+                    for (int i = 0; i < presets.Count; i++)
+                    {
+                        var preset = presets[i];
+                        var instanceId = CreateUniqueId();
+                        var instanceName = preset.Label ?? preset.Name ?? $"{LangKeys.Config.ToLocalization()} {_instanceOrder.Count + 1}";
+
+                        _instanceNames[instanceId] = instanceName;
+                        _instanceOrder.Add(instanceId);
+                        _instancePresetIndexes[instanceId] = i; // 记录 preset 索引
+
+                        // 创建实例对象
+                        var processor = CreateInstanceInternal(instanceId, setCurrent: false);
+                        
+                        // 保存实例名称到配置文件
+                        processor.InstanceConfiguration.SetValue(ConfigurationKeys.InstanceName, instanceName);
+
+                        LoggerHelper.Info($"[初始化] 基于 preset '{preset.Name}' 创建实例 {instanceId} (显示名称: {instanceName})");
+                    }
+
+
+                    // 加载第一个实例作为当前活跃实例
+                    if (_instanceOrder.Count > 0)
+                    {
+                        var firstId = _instanceOrder[0];
+                        LoadSingleInstance(firstId);
+                        Current = _instances[firstId];
+                        SaveInstanceConfig();
+
+                        // 应用对应的 preset 到该实例
+                        var firstPreset = presets[0];
+                        if (Current.ViewModel != null)
+                        {
+                            DispatcherHelper.PostOnMainThread(() =>
+                            {
+                                Current.ViewModel.ApplyPresetCommand.Execute(firstPreset);
+                            });
+                        }
+
+                        // 收集剩余待加载的实例ID
+                        _pendingInstanceIds.Clear();
+                        for (int i = 1; i < _instanceOrder.Count; i++)
+                        {
+                            _pendingInstanceIds.Add(_instanceOrder[i]);
+                        }
+
+                        _isLazyLoadingComplete = false;
+                    }
+
+                    return;
+                }
+            }
+
+            // 如果没有 preset，继续使用 default 实例，并将其作为真正的初始实例持久化。
+            // 否则本次启动虽然看起来已有“默认配置”，但重启后因为磁盘上仍无实例文件，
+            // 一旦 interface 后续新增 preset，就会被误判为“首次初始化”，从而被 preset 替换。
+            LoggerHelper.Info("没有 preset，将继续使用默认的 default 实例并持久化到配置");
+
+            lock (_lock)
+            {
+                if (!_instanceOrder.Contains("default"))
+                    _instanceOrder.Add("default");
+
+                if (!_instanceNames.ContainsKey("default"))
+                    _instanceNames["default"] = $"{LangKeys.Config.ToLocalization()} 1";
+
+                LoadSingleInstance("default");
+                Current = _instances["default"];
+                Current.InstanceConfiguration.SetValue(ConfigurationKeys.InstanceName, _instanceNames["default"]);
+                SaveInstanceConfig();
+                _pendingInstanceIds.Clear();
+                _isLazyLoadingComplete = true;
+            }
+
+            return;
+        }
         lock (_lock)
         {
             if (MaaProcessor.Interface == null)
             {
                 MaaProcessor.ReadInterface();
             }
+
+            var validIds = new HashSet<string>(ids, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var staleId in _instanceNames.Keys.Where(id => !validIds.Contains(id)).ToList())
+                _instanceNames.Remove(staleId);
+
+            foreach (var staleId in _instancePresetIndexes.Keys.Where(id => !validIds.Contains(id)).ToList())
+                _instancePresetIndexes.Remove(staleId);
 
             // 1. 恢复顺序和名称（不创建实例）
             var orderStr = GlobalConfiguration.GetValue(ConfigurationKeys.InstanceOrder, "");
@@ -711,20 +975,45 @@ public sealed class MaaProcessorManager
                                 new MaaInterfaceSelectAdvancedConverter(false),
                                 new MaaInterfaceSelectOptionConverter(false));
                         }
-                        catch { /* 迁移失败不影响正常运行 */ }
+                        catch
+                        {
+                            /* 迁移失败不影响正常运行 */
+                        }
                     }
                 }
                 else if (!_instanceNames.ContainsKey(id))
-                    _instanceNames[id] = id;
+                {
+                    name = CreateDefaultInstanceName();
+                    _instanceNames[id] = name;
+
+                    try
+                    {
+                        var instanceFilePath = Path.Combine(InstanceConfiguration.InstancesDir, $"{id}.json");
+                        var data = File.Exists(instanceFilePath)
+                            ? JsonHelper.LoadJson(instanceFilePath, new Dictionary<string, object>())
+                            : new Dictionary<string, object>();
+                        data[ConfigurationKeys.InstanceName] = name;
+                        JsonHelper.SaveJson(instanceFilePath, data,
+                            new MaaInterfaceSelectAdvancedConverter(false),
+                            new MaaInterfaceSelectOptionConverter(false));
+                    }
+                    catch
+                    {
+                        /* 名称回填失败不影响正常运行 */
+                    }
+                }
             }
 
-            // 2. 清理不在配置中的实例
-            var validIds = new HashSet<string>(ids);
+            // 先仅同步实例列表/顺序，避免在读取上次活跃实例前把其覆盖掉
+            SaveInstanceConfig(false);
+
+            // 2. 清理不在配置中的实例（含磁盘文件，防止构造函数创建的临时实例残留）
             var toRemove = _instances.Keys.Where(k => !validIds.Contains(k)).ToList();
             foreach (var key in toRemove)
             {
                 if (_instances.TryGetValue(key, out var p))
                 {
+                    p.InstanceConfiguration.DeleteConfigFile();
                     p.Dispose();
                     _instances.Remove(key);
                     _instanceNames.Remove(key);
@@ -733,21 +1022,36 @@ public sealed class MaaProcessorManager
 
             // 3. 优先加载 ActiveTab 实例
             var lastActive = GlobalConfiguration.GetValue(ConfigurationKeys.LastActiveInstance, "");
-            if (string.IsNullOrEmpty(lastActive) || !validIds.Contains(lastActive))
+            if (string.IsNullOrWhiteSpace(lastActive) || !validIds.Contains(lastActive))
+            {
+                var lastActiveName = GlobalConfiguration.GetValue(ConfigurationKeys.LastActiveInstanceName, "");
+                if (!string.IsNullOrWhiteSpace(lastActiveName))
+                {
+                    var matchedIdByName = _instanceOrder.FirstOrDefault(id =>
+                        validIds.Contains(id)
+                        && _instanceNames.TryGetValue(id, out var instanceName)
+                        && instanceName.Equals(lastActiveName, StringComparison.OrdinalIgnoreCase));
+
+                    if (!string.IsNullOrWhiteSpace(matchedIdByName))
+                        lastActive = matchedIdByName;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(lastActive) || !validIds.Contains(lastActive))
                 lastActive = _instanceOrder.FirstOrDefault() ?? ids[0];
 
             // 支持 -c 参数按实例名称激活多开实例
             if (AppRuntime.Args.TryGetValue("c", out var configParam) && !string.IsNullOrEmpty(configParam))
             {
                 var matchedId = _instanceOrder.FirstOrDefault(id =>
-                    _instanceNames.TryGetValue(id, out var name) &&
-                    name.Equals(configParam, StringComparison.OrdinalIgnoreCase));
+                    _instanceNames.TryGetValue(id, out var name) && name.Equals(configParam, StringComparison.OrdinalIgnoreCase));
                 if (matchedId != null)
                     lastActive = matchedId;
             }
 
             LoadSingleInstance(lastActive);
             Current = _instances[lastActive];
+            SaveInstanceConfig();
 
             // 4. 收集剩余待加载的实例ID
             _pendingInstanceIds.Clear();
@@ -759,6 +1063,61 @@ public sealed class MaaProcessorManager
 
             _isLazyLoadingComplete = false;
         }
+    }
+    /// <summary>
+    /// 扫描 config/instances/ 目录，返回所有实例文件的 ID
+    /// </summary>
+    private static List<string> ScanAllInstanceFiles()
+    {
+        var instanceIds = new List<string>();
+        if (!Directory.Exists(InstanceConfiguration.InstancesDir))
+            return instanceIds;
+
+        foreach (var file in Directory.EnumerateFiles(InstanceConfiguration.InstancesDir, "*.json"))
+        {
+            var id = Path.GetFileNameWithoutExtension(file);
+            if (!string.IsNullOrWhiteSpace(id))
+            {
+                if (TryValidateInstanceFile(id, out var reason))
+                {
+                    instanceIds.Add(id);
+                }
+                else
+                {
+                    LoggerHelper.Error($"[实例加载] 已排除异常实例文件: {file}，原因: {reason}");
+                }
+            }
+        }
+        return instanceIds;
+    }
+
+    /// <summary>
+    /// 扫描 config/instances/ 目录，返回未在已注册列表中的实例 ID
+    /// </summary>
+    private static List<string> ScanUnregisteredInstanceFiles(string[] registeredIds)
+    {
+        var extra = new List<string>();
+        if (!Directory.Exists(InstanceConfiguration.InstancesDir))
+            return extra;
+
+        var knownSet = new HashSet<string>(registeredIds, StringComparer.OrdinalIgnoreCase);
+        foreach (var file in Directory.EnumerateFiles(InstanceConfiguration.InstancesDir, "*.json"))
+        {
+            var id = Path.GetFileNameWithoutExtension(file);
+            if (!string.IsNullOrWhiteSpace(id) && !knownSet.Contains(id))
+            {
+                if (TryValidateInstanceFile(id, out var reason))
+                {
+                    extra.Add(id);
+                    LoggerHelper.Info($"[扫描] 发现未注册的实例配置文件: {id}，将自动加载");
+                }
+                else
+                {
+                    LoggerHelper.Error($"[实例加载] 已排除异常实例文件: {file}，原因: {reason}");
+                }
+            }
+        }
+        return extra;
     }
 
     /// <summary>
@@ -814,14 +1173,19 @@ public sealed class MaaProcessorManager
         }
     }
 
-    /// <summary>
     /// 懒加载第三阶段：逐个加载剩余实例
     /// </summary>
-    public async System.Threading.Tasks.Task LoadRemainingInstancesAsync()
+    public async Task LoadRemainingInstancesAsync()
     {
+        // 获取 preset 列表用于自动应用（如果是基于 preset 创建的初始实例）
+        var presets = MaaProcessor.Interface?.Preset;
+
         while (true)
         {
             string? nextId = null;
+            int presetIndex = -1;
+            MaaProcessor? processor = null;
+
             lock (_lock)
             {
                 if (_pendingInstanceIds.Count == 0)
@@ -832,20 +1196,32 @@ public sealed class MaaProcessorManager
 
                 nextId = _pendingInstanceIds[0];
                 _pendingInstanceIds.RemoveAt(0);
-            }
 
-            if (nextId != null)
-            {
-                lock (_lock)
+                LoadSingleInstance(nextId);
+                _instances.TryGetValue(nextId, out processor);
+
+                // 检查是否有对应的 preset 索引
+                if (_instancePresetIndexes.TryGetValue(nextId, out var idx))
                 {
-                    LoadSingleInstance(nextId);
+                    presetIndex = idx;
                 }
-
-                // 每加载一个实例后等待1秒，缓慢加载避免卡UI
-                await System.Threading.Tasks.Task.Delay(1000);
             }
+
+            // 如果实例有对应的 preset，应用它
+            if (presetIndex >= 0 && presets is { Count: > 0 } && presetIndex < presets.Count && processor?.ViewModel != null)
+            {
+                var preset = presets[presetIndex];
+                DispatcherHelper.PostOnMainThread(() =>
+                {
+                    processor.ViewModel.ApplyPresetCommand.Execute(preset);
+                });
+            }
+
+            // 每加载一个实例后等待0.5秒，缓慢加载避免卡UI
+            await Task.Delay(500);
         }
     }
+
 
     /// <summary>
     /// 检查实例是否已加载

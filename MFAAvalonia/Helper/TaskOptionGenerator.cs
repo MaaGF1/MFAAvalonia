@@ -1,5 +1,6 @@
-using Avalonia;
+﻿using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Data.Converters;
@@ -167,11 +168,19 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
     {
         if (MaaProcessor.Interface?.Option?.TryGetValue(option.Name ?? string.Empty, out var interfaceOption) != true) return;
 
+        // 过滤：根据 option.controller / option.resource 隐藏不适用项（任务 11）
+        if (!IsOptionApplicable(interfaceOption)) return;
+
         Control control;
 
         if (interfaceOption.IsInput)
         {
             control = CreateInputControl(option, interfaceOption);
+        }
+        else if (interfaceOption.IsCheckbox)
+        {
+            // checkbox 类型：多选 ToggleButton 列表（任务 8）
+            control = CreateCheckboxControl(option, interfaceOption, source);
         }
         else if ((interfaceOption.IsSwitch && interfaceOption.Cases.ShouldSwitchButton(out var yes, out var no)) ||
                  interfaceOption.Cases.ShouldSwitchButton(out yes, out no)) // Try both conditions with/without type checking logic
@@ -184,6 +193,235 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         }
 
         panel.Children.Add(control);
+    }
+
+    /// <summary>
+    /// 检查 option 是否适用于当前控制器和资源（任务 11）
+    /// </summary>
+    private bool IsOptionApplicable(MaaInterface.MaaInterfaceOption interfaceOption)
+    {
+        // 检查 controller 过滤
+        // interfaceOption.Controller 存储的是 interface.json 中 controller[].name 字段（如 "ADB控制器"）
+        // 而非 type 字段（如 "adb"），需要通过 type 查找对应的 name
+        if (interfaceOption.Controller is { Count: > 0 })
+        {
+            var controllerTypeKey = viewModel.CurrentController.ToJsonKey();
+            var controllerConfig = MaaProcessor.Interface?.Controller?.FirstOrDefault(c =>
+                c.Type != null && c.Type.Equals(controllerTypeKey, StringComparison.OrdinalIgnoreCase));
+            var currentControllerName = controllerConfig?.Name ?? controllerTypeKey;
+            if (!interfaceOption.Controller.Any(c => c.Equals(currentControllerName, StringComparison.OrdinalIgnoreCase)))
+                return false;
+        }
+        // 检查 resource 过滤
+        if (interfaceOption.Resource is { Count: > 0 })
+        {
+            var currentResource = viewModel.CurrentResource;
+            if (!interfaceOption.Resource.Any(r => r.Equals(currentResource, StringComparison.OrdinalIgnoreCase)))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// 创建 checkbox 类型的多选 ToggleButton 控件（任务 8）
+    /// </summary>
+    private Control CreateCheckboxControl(MaaInterface.MaaInterfaceSelectOption option, MaaInterface.MaaInterfaceOption interfaceOption, DragItemViewModel source)
+    {
+        var container = new StackPanel { Margin = new Thickness(10, 10, 10, 6), Spacing = 4 };
+
+        interfaceOption.InitializeIcon();
+
+        // Header（显示 option 名称和图标）
+        var header = CreateOptionHeader(interfaceOption);
+        header.Margin = new Thickness(0); // 外层 container 已提供垂直间距，去掉 header 内部多余的上下 margin
+        container.Children.Add(header);
+
+        // 初始化 SelectedCases（任务 9）
+        option.SelectedCases ??= new List<string>(interfaceOption.DefaultCases ?? new List<string>());
+
+        // WrapPanel of ToggleButtons（等宽按钮，自然换行）
+        var wrapPanel = new WrapPanel
+        {
+            Margin = new Thickness(0, 2, 0, 2),
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+
+        // Sub-options container（显示所有被勾选 case 的子选项）
+        var subOptionsContainer = new StackPanel();
+
+        // Sub-option update logic for checkbox（与 select/switch 不同，需要显示所有已勾选 case 的子选项）
+        void UpdateSubOptions()
+        {
+            subOptionsContainer.Children.Clear();
+            if (interfaceOption.Cases == null) return;
+
+            option.SubOptions ??= new List<MaaInterface.MaaInterfaceSelectOption>();
+            var selectedCases = option.SelectedCases ?? new List<string>();
+
+            foreach (var caseItem in interfaceOption.Cases)
+            {
+                if (caseItem.Name == null || !selectedCases.Contains(caseItem.Name)) continue;
+                if (caseItem.Option == null || caseItem.Option.Count == 0) continue;
+
+                foreach (var subOptionName in caseItem.Option)
+                {
+                    var existing = option.SubOptions.FirstOrDefault(o => o.Name == subOptionName);
+                    if (existing == null)
+                    {
+                        existing = CreateDefaultSelectOption(subOptionName);
+                        option.SubOptions.Add(existing);
+                    }
+                    AddSubOption(subOptionsContainer, existing, source);
+                }
+            }
+        }
+
+        if (interfaceOption.Cases != null)
+        {
+            foreach (var caseOption in interfaceOption.Cases)
+            {
+                caseOption.InitializeDisplayName();
+                var caseName = caseOption.Name ?? string.Empty;
+                var isChecked = option.SelectedCases.Contains(caseName);
+
+                var toggleBtn = new ToggleButton
+                {
+                    IsChecked = isChecked,
+                    Margin = new Thickness(2,2,6,6),
+                    Padding = new Thickness(6, 4, 6, 4),
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Center,
+                };
+
+                // 按钮内容：图标 + 滚动文字（用 Grid 让 MarqueeTextBlock 自适应剩余宽度）
+                var btnContent = new Grid
+                {
+                    ColumnDefinitions =
+                    {
+                        new ColumnDefinition { Width = GridLength.Auto },
+                        new ColumnDefinition { Width = GridLength.Star },
+                        new ColumnDefinition { Width = GridLength.Auto },
+                    }
+                };
+
+                var iconDisplay = new DisplayIcon
+                {
+                    IconSize = 16,
+                    Margin = new Thickness(0, 0, 4, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                iconDisplay.Bind(DisplayIcon.IconSourceProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.ResolvedIcon)) { Source = caseOption });
+                iconDisplay.Bind(Visual.IsVisibleProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.HasIcon)) { Source = caseOption });
+                Grid.SetColumn(iconDisplay, 0);
+
+                var marqueeText = new MarqueeTextBlock
+                {
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                };
+                marqueeText.Bind(MarqueeTextBlock.TextProperty, new ResourceBindingWithFallback(caseOption.DisplayName, caseOption.Name));
+                Grid.SetColumn(marqueeText, 1);
+
+                btnContent.Children.Add(iconDisplay);
+                btnContent.Children.Add(marqueeText);
+                toggleBtn.Content = btnContent;
+
+                BindIdleEnabled(toggleBtn);
+
+                var capturedCaseName = caseName;
+                toggleBtn.IsCheckedChanged += (_, _) =>
+                {
+                    if (toggleBtn.IsChecked == true)
+                    {
+                        if (!option.SelectedCases.Contains(capturedCaseName))
+                            option.SelectedCases.Add(capturedCaseName);
+                    }
+                    else
+                    {
+                        option.SelectedCases.Remove(capturedCaseName);
+                    }
+                    UpdateSubOptions();
+                    saveConfigurationAction();
+                };
+
+                // TooltipBlock 放在 ToggleButton 内部（btnContent 末尾），
+                // TooltipBlock 会自动检测父级 Button 并通过 PointerMoved 坐标追踪来显示 Flyout，
+                // 绕过 SukiUI 按钮模板 ContentPresenter 的 IsHitTestVisible="False" 限制。
+                if (caseOption.HasDescription)
+                {
+                    var tooltipBlock = new TooltipBlock
+                    {
+                        Margin = new Thickness(2, 0, 0, 0),
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    tooltipBlock.Bind(TooltipBlock.TooltipTextProperty,
+                        new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.DisplayDescription)) { Source = caseOption });
+                    Grid.SetColumn(tooltipBlock, 2);
+                    btnContent.Children.Add(tooltipBlock);
+                }
+
+                wrapPanel.Children.Add(toggleBtn);
+            }
+        }
+
+        // 首次布局后测量所有按钮自然宽度，取最大值统一设置 MinWidth（等宽效果）
+        if (wrapPanel.Children.Count > 0)
+        {
+            wrapPanel.LayoutUpdated += EqualizeOnce;
+            void EqualizeOnce(object? s, EventArgs ev)
+            {
+                wrapPanel.LayoutUpdated -= EqualizeOnce;
+                double maxWidth = 0;
+                foreach (var child in wrapPanel.Children)
+                {
+                    if (child is ToggleButton btn)
+                    {
+                        btn.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                        if (btn.DesiredSize.Width > maxWidth)
+                            maxWidth = btn.DesiredSize.Width;
+                    }
+                }
+                if (maxWidth > 0)
+                {
+                    // 限制最大宽度不超过容器宽度减去按钮 Margin
+                    var containerWidth = container.Bounds.Width;
+                    if (containerWidth > 0)
+                    {
+                        var btnMarginH = 2 + 6; // Margin Left + Right
+                        maxWidth = Math.Min(maxWidth, containerWidth - btnMarginH);
+                    }
+                    foreach (var child in wrapPanel.Children)
+                    {
+                        if (child is ToggleButton btn)
+                            btn.MinWidth = maxWidth;
+                    }
+                }
+            }
+        }
+
+        container.Children.Add(wrapPanel);
+
+        // Initialize sub-options for default checked cases
+        UpdateSubOptions();
+
+        // Enhanced Sub-option visualization
+        var subOptionsBorder = new Border
+        {
+            BorderThickness = new Thickness(2, 0, 0, 0),
+            Background = Brushes.Transparent,
+            Margin = new Thickness(24, 0, 0, 4),
+            Padding = new Thickness(8, 0, 0, 0),
+            Child = subOptionsContainer
+        };
+        subOptionsBorder.Bind(Border.BorderBrushProperty, new DynamicResourceExtension("SukiPrimaryColor"));
+        subOptionsBorder.Bind(Visual.IsVisibleProperty, new Binding("Children.Count")
+        {
+            Source = subOptionsContainer,
+            Converter = new FuncValueConverter<int, bool>(count => count > 0)
+        });
+
+        container.Children.Add(subOptionsBorder);
+        return container;
     }
 
     private Control CreateInputControl(MaaInterface.MaaInterfaceSelectOption option, MaaInterface.MaaInterfaceOption interfaceOption)
@@ -265,9 +503,11 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         {
             MinWidth = 120,
             Margin = new Thickness(0, 2, 0, 2),
+            BorderThickness = new Thickness(1),
             Text = displayValue,
             VerticalAlignment = VerticalAlignment.Center
         };
+        textBox.Bind(TextBox.BorderBrushProperty, new DynamicResourceExtension("SukiControlBorderBrush"));
         
         if (!string.IsNullOrWhiteSpace(input.PatternMsg))
             textBox.Bind(TextBox.WatermarkProperty, new ResourceBinding(input.PatternMsg));
@@ -657,6 +897,8 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
          Control control;
          if (subInterfaceOption.IsInput)
             control = CreateInputControl(subOption, subInterfaceOption);
+         else if (subInterfaceOption.IsCheckbox)
+            control = CreateCheckboxControl(subOption, subInterfaceOption, source);
          else if ((subInterfaceOption.IsSwitch && subInterfaceOption.Cases.ShouldSwitchButton(out var yes, out var no)) ||
                   subInterfaceOption.Cases.ShouldSwitchButton(out yes, out no))
             control = CreateToggleControl(subOption, yes, no, subInterfaceOption, source);
@@ -679,6 +921,13 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
             },
             Margin = new Thickness(10, 3, 10, 3)
         };
+        return grid;
+    }
+
+    private Grid CreateSpecialTaskGrid(bool isFirstRow = false)
+    {
+        var grid = CreateBaseGrid();
+        grid.Margin = isFirstRow ? new Thickness(10, 6, 10, 6) : new Thickness(10, 3, 10, 3);
         return grid;
     }
 
@@ -766,10 +1015,9 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         var headerText = new TextBlock
         {
             FontSize = 14,
-            FontWeight = FontWeight.SemiBold,
         };
         headerText.Bind(TextBlock.TextProperty, new ResourceBindingWithFallback(interfaceOption.DisplayName, interfaceOption.Name));
-        headerText.Bind(TextBlock.ForegroundProperty, new DynamicResourceExtension("SukiText"));
+        headerText.Bind(TextBlock.ForegroundProperty, new DynamicResourceExtension("SukiLowText"));
         headerPanel.Children.Add(headerText);
 
         // 添加 TooltipBlock 显示 Option 级别的 Description
@@ -846,6 +1094,13 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
              // Regex validation... logic as before
         }
 
+        // 验证输入并显示红框
+        var validation = interfaceOption.ValidateInput(input.Name ?? string.Empty, text);
+        if (validation.IsValid)
+            textBox.Bind(TextBox.BorderBrushProperty, new DynamicResourceExtension("SukiControlBorderBrush"));
+        else
+            textBox.BorderBrush = Brushes.Red;
+
         if (!silent)
         {
             option.Data[input.Name] = text == "null" ? MaaInterface.MaaInterfaceOption.ExplicitNullMarker : text;
@@ -875,16 +1130,20 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
 
     private static MaaInterface.MaaInterfaceSelectOption CreateDefaultSelectOption(string optionName)
     {
-        // Reused from original static method logic or copied here
         var selectOption = new MaaInterface.MaaInterfaceSelectOption { Name = optionName, Index = 0 };
         if (MaaProcessor.Interface?.Option?.TryGetValue(optionName, out var interfaceOption) == true)
         {
             if (interfaceOption.IsInput && interfaceOption.Inputs != null)
             {
                 selectOption.Data = new Dictionary<string, string?>();
-                foreach(var input in interfaceOption.Inputs) 
-                    if (!string.IsNullOrEmpty(input.Name)) 
+                foreach(var input in interfaceOption.Inputs)
+                    if (!string.IsNullOrEmpty(input.Name))
                         selectOption.Data[input.Name] = input.Default ?? string.Empty;
+            }
+            else if (interfaceOption.IsCheckbox)
+            {
+                // 任务 9：checkbox 类型初始化 SelectedCases from DefaultCases
+                selectOption.SelectedCases = new List<string>(interfaceOption.DefaultCases ?? new List<string>());
             }
             else if (!string.IsNullOrEmpty(interfaceOption.DefaultCase) && interfaceOption.Cases != null)
             {
@@ -945,21 +1204,22 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         comboBox.SelectionBoxItemTemplate = new FuncDataTemplate<MaaInterface.MaaInterfaceOptionCase>((caseOption, _) => CreateComboBoxItemContent(caseOption, false));
     }
     
-    private Control CreateComboBoxItemContent(MaaInterface.MaaInterfaceOptionCase caseOption, bool isMarquee)
+    private Control CreateComboBoxItemContent(MaaInterface.MaaInterfaceOptionCase? caseOption, bool isMarquee)
     {
          var grid = new Grid
          {
-             ColumnDefinitions = 
+             ColumnDefinitions =
              {
                  new ColumnDefinition { Width = GridLength.Auto },
                  new ColumnDefinition { Width = GridLength.Star },
                  new ColumnDefinition { Width = GridLength.Auto }
-             }
+             },
+             HorizontalAlignment = HorizontalAlignment.Stretch
          };
          
          var iconDisplay = new DisplayIcon { IconSize = 20, Margin = new Thickness(0,0,6,0), VerticalAlignment = VerticalAlignment.Center };
-         iconDisplay.Bind(DisplayIcon.IconSourceProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.ResolvedIcon)));
-         iconDisplay.Bind(Visual.IsVisibleProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.HasIcon)));
+         iconDisplay.Bind(DisplayIcon.IconSourceProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.ResolvedIcon)) { Source = caseOption });
+         iconDisplay.Bind(Visual.IsVisibleProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.HasIcon)) { Source = caseOption });
          Grid.SetColumn(iconDisplay, 0);
 
          Control textControl;
@@ -967,8 +1227,8 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
          {
              var marquee = new MarqueeTextBlock { VerticalContentAlignment = VerticalAlignment.Center };
              marquee.Bind(MarqueeTextBlock.ForegroundProperty, new DynamicResourceExtension("SukiText"));
-             marquee.Bind(MarqueeTextBlock.TextProperty, new Binding(nameof(caseOption.DisplayName)));
-             marquee.Bind(ToolTip.TipProperty, new Binding(nameof(caseOption.DisplayName)));
+             marquee.Bind(MarqueeTextBlock.TextProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.DisplayName)) { Source = caseOption });
+             marquee.Bind(ToolTip.TipProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.DisplayName)) { Source = caseOption });
              ToolTip.SetShowDelay(marquee, 100);
              textControl = marquee;
          }
@@ -976,20 +1236,21 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
          {
              var tb = new TextBlock { TextTrimming = TextTrimming.WordEllipsis, TextWrapping = TextWrapping.NoWrap, VerticalAlignment = VerticalAlignment.Center };
              tb.Bind(TextBlock.ForegroundProperty, new DynamicResourceExtension("SukiText"));
-             tb.Bind(TextBlock.TextProperty, new Binding(nameof(caseOption.DisplayName)));
-             tb.Bind(ToolTip.TipProperty, new Binding(nameof(caseOption.DisplayName)));
+             tb.Bind(TextBlock.TextProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.DisplayName)) { Source = caseOption });
+             tb.Bind(ToolTip.TipProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.DisplayName)) { Source = caseOption });
              textControl = tb;
          }
          Grid.SetColumn(textControl, 1);
          
-         var tooltipBlock = new TooltipBlock();
-         tooltipBlock.Bind(TooltipBlock.TooltipTextProperty, new Binding(nameof(caseOption.DisplayDescription)));
-         tooltipBlock.Bind(Visual.IsVisibleProperty, new Binding(nameof(caseOption.HasDescription)));
+         // 始终创建 TooltipBlock，由绑定控制可见性，避免模板回收阶段 caseOption 为空时空引用
+         var tooltipBlock = new TooltipBlock { Margin = new Thickness(4, 0, 0, 0) };
+         tooltipBlock.Bind(TooltipBlock.TooltipTextProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.DisplayDescription)) { Source = caseOption });
+         tooltipBlock.Bind(Visual.IsVisibleProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.HasDescription)) { Source = caseOption });
          Grid.SetColumn(tooltipBlock, 2);
+         grid.Children.Add(tooltipBlock);
          
          grid.Children.Add(iconDisplay);
          grid.Children.Add(textControl);
-         grid.Children.Add(tooltipBlock);
          
          return grid;
     }
@@ -1075,7 +1336,7 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
     private void AddCountdownOptions(StackPanel panel, DragItemViewModel dragItem)
     {
         var param = GetActionParam(dragItem);
-        var grid = CreateBaseGrid();
+        var grid = CreateSpecialTaskGrid(isFirstRow: true);
 
         var label = CreateLabelPanel(LangKeys.SpecialTask_CountdownSeconds, null, null, useI18n: true);
         label.Margin = new Thickness(10, 0, 0, 0);
@@ -1091,6 +1352,8 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
             MinWidth = 120,
             Margin = new Thickness(0, 2, 0, 2),
             VerticalAlignment = VerticalAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Classes = { "TaskOptionLikeCombo" },
         };
         BindIdleEnabled(numericUpDown);
         numericUpDown.ValueChanged += (_, _) =>
@@ -1106,86 +1369,44 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
     }
 
     /// <summary>
-    /// 定时等待 - 等待到指定时间 (hour:minute)
+    /// 定时等待 - 等待到指定时间 (hour:minute)，使用 TimePicker 控件
     /// </summary>
     private void AddTimedWaitOptions(StackPanel panel, DragItemViewModel dragItem)
     {
         var param = GetActionParam(dragItem);
-        var grid = new Grid
-        {
-            ColumnDefinitions =
-            {
-                new ColumnDefinition { Width = GridLength.Auto },
-                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
-                new ColumnDefinition { Width = GridLength.Auto },
-            },
-            Margin = new Thickness(10, 3, 10, 3),
-        };
+        var grid = CreateSpecialTaskGrid(isFirstRow: true);
 
         var label = CreateLabelPanel(LangKeys.SpecialTask_WaitUntilTime, null, null, useI18n: true);
-        label.Margin = new Thickness(10, 0, 5, 0);
+        label.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(label, 0);
         grid.Children.Add(label);
 
-        var timePanel = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 4,
-            VerticalAlignment = VerticalAlignment.Center,
-            HorizontalAlignment = HorizontalAlignment.Right,
-        };
+        var hour = (int?)param["hour"] ?? 0;
+        var minute = (int?)param["minute"] ?? 0;
 
-        var hourUpDown = new NumericUpDown
+        var timePicker = new TimePicker
         {
-            Value = (int?)param["hour"] ?? 0,
-            Minimum = 0,
-            Maximum = 23,
-            Increment = 1,
-            MinWidth = 70,
+            ClockIdentifier = "24HourClock",
+            SelectedTime = new TimeSpan(hour, minute, 0),
+            MinWidth = 120,
             Margin = new Thickness(0, 2, 0, 2),
             VerticalAlignment = VerticalAlignment.Center,
-            FormatString = "00",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Classes = { "TaskOptionLikeCombo" },
         };
-        BindIdleEnabled(hourUpDown);
+        BindIdleEnabled(timePicker);
 
-        var separator = new TextBlock
+        timePicker.SelectedTimeChanged += (_, _) =>
         {
-            Text = ":",
-            FontSize = 16,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(2, 0, 2, 0),
-        };
-
-        var minuteUpDown = new NumericUpDown
-        {
-            Value = (int?)param["minute"] ?? 0,
-            Minimum = 0,
-            Maximum = 59,
-            Increment = 1,
-            MinWidth = 70,
-            Margin = new Thickness(0, 2, 0, 2),
-            VerticalAlignment = VerticalAlignment.Center,
-            FormatString = "00",
-        };
-        BindIdleEnabled(minuteUpDown);
-
-        hourUpDown.ValueChanged += (_, _) =>
-        {
-            param["hour"] = Convert.ToInt32(hourUpDown.Value);
-            UpdateActionParam(dragItem, param);
-        };
-        minuteUpDown.ValueChanged += (_, _) =>
-        {
-            param["minute"] = Convert.ToInt32(minuteUpDown.Value);
+            var time = timePicker.SelectedTime ?? TimeSpan.Zero;
+            param["hour"] = time.Hours;
+            param["minute"] = time.Minutes;
             UpdateActionParam(dragItem, param);
         };
 
-        timePanel.Children.Add(hourUpDown);
-        timePanel.Children.Add(separator);
-        timePanel.Children.Add(minuteUpDown);
-
-        Grid.SetColumn(timePanel, 2);
-        grid.Children.Add(timePanel);
+        Grid.SetColumn(timePicker, 1);
+        AddResponsiveBehavior(grid, label, timePicker);
+        grid.Children.Add(timePicker);
         panel.Children.Add(grid);
     }
 
@@ -1197,7 +1418,7 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         var param = GetActionParam(dragItem);
 
         // 标题
-        var grid1 = CreateBaseGrid();
+        var grid1 = CreateSpecialTaskGrid(isFirstRow: true);
         var label1 = CreateLabelPanel(LangKeys.SpecialTask_NotificationTitle, null, null, useI18n: true);
         label1.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(label1, 0);
@@ -1222,7 +1443,7 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         panel.Children.Add(grid1);
 
         // 内容
-        var grid2 = CreateBaseGrid();
+        var grid2 = CreateSpecialTaskGrid();
         var label2 = CreateLabelPanel(LangKeys.SpecialTask_NotificationContent, null, null, useI18n: true);
         label2.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(label2, 0);
@@ -1258,7 +1479,7 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         var param = GetActionParam(dragItem);
 
         // 程序路径
-        var grid1 = CreateBaseGrid();
+        var grid1 = CreateSpecialTaskGrid(isFirstRow: true);
         var label1 = CreateLabelPanel(LangKeys.SpecialTask_ProgramPath, null, null, useI18n: true);
         label1.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(label1, 0);
@@ -1335,7 +1556,7 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         panel.Children.Add(grid1);
 
         // 附加参数
-        var grid2 = CreateBaseGrid();
+        var grid2 = CreateSpecialTaskGrid();
         var label2 = CreateLabelPanel(LangKeys.SpecialTask_Arguments, null, null, useI18n: true);
         label2.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(label2, 0);
@@ -1396,37 +1617,98 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
     }
 
     /// <summary>
-    /// 结束进程 - process_name (TextBox)
+    /// 结束进程 - kill_self_process (ToggleSwitch), process_name (TextBox)
     /// </summary>
     private void AddKillProcessOptions(StackPanel panel, DragItemViewModel dragItem)
     {
         var param = GetActionParam(dragItem);
-        var grid = CreateBaseGrid();
+        var processName = (string?)param["process_name"] ?? string.Empty;
+        var killSelfProcess = (bool?)param["kill_self_process"] ?? string.IsNullOrWhiteSpace(processName);
 
-        var label = CreateLabelPanel(LangKeys.SpecialTask_ProcessName, null, null, useI18n: true);
-        label.Margin = new Thickness(10, 0, 0, 0);
-        Grid.SetColumn(label, 0);
-        grid.Children.Add(label);
+        var wrapper = new StackPanel();
+        var grid = CreateSpecialTaskGrid(isFirstRow: true);
 
-        var textBox = new TextBox
+        var labelPanel = CreateLabelPanel(LangKeys.SpecialTask_KillSelfProcess, null, LangKeys.SpecialTask_KillSelfProcessDesc, useI18n: true);
+        Grid.SetColumn(labelPanel, 0);
+        grid.Children.Add(labelPanel);
+
+        var toggleSwitch = new ToggleSwitch
         {
-            Text = (string?)param["process_name"] ?? "",
-            MinWidth = 120,
-            Margin = new Thickness(0, 2, 0, 2),
+            IsChecked = killSelfProcess,
+            Classes = { "Switch" },
+            MaxHeight = 60,
+            MaxWidth = 100,
+            HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
-            Watermark = LangKeys.SpecialTask_ProcessNameExample.ToLocalization(),
         };
-        BindIdleEnabled(textBox);
-        textBox.TextChanged += (_, _) =>
+        BindIdleEnabled(toggleSwitch);
+        Grid.SetColumn(toggleSwitch, 2);
+        grid.Children.Add(toggleSwitch);
+        wrapper.Children.Add(grid);
+
+        var subOptionsContainer = new StackPanel();
+
+        void UpdateSubOptions(bool isKillSelf)
         {
-            param["process_name"] = textBox.Text ?? "";
+            subOptionsContainer.Children.Clear();
+            if (isKillSelf)
+                return;
+
+            var processGrid = CreateSpecialTaskGrid();
+            processGrid.Margin = new Thickness(0, 0, 0, 0);
+
+            var processLabel = CreateLabelPanel(LangKeys.SpecialTask_ProcessName, null, null, useI18n: true);
+            Grid.SetColumn(processLabel, 0);
+            processGrid.Children.Add(processLabel);
+
+            var textBox = new TextBox
+            {
+                Text = (string?)param["process_name"] ?? string.Empty,
+                MinWidth = 120,
+                Margin = new Thickness(0, 2, 0, 2),
+                VerticalAlignment = VerticalAlignment.Center,
+                Watermark = LangKeys.SpecialTask_ProcessNamePlaceholder.ToLocalization(),
+            };
+            BindIdleEnabled(textBox);
+            textBox.TextChanged += (_, _) =>
+            {
+                param["process_name"] = textBox.Text ?? string.Empty;
+                UpdateActionParam(dragItem, param);
+            };
+
+            Grid.SetColumn(textBox, 1);
+            AddResponsiveBehavior(processGrid, processLabel, textBox);
+            processGrid.Children.Add(textBox);
+            subOptionsContainer.Children.Add(processGrid);
+        }
+
+        toggleSwitch.IsCheckedChanged += (_, _) =>
+        {
+            var isKillSelf = toggleSwitch.IsChecked == true;
+            param["kill_self_process"] = isKillSelf;
             UpdateActionParam(dragItem, param);
+            UpdateSubOptions(isKillSelf);
         };
 
-        Grid.SetColumn(textBox, 1);
-        AddResponsiveBehavior(grid, label, textBox);
-        grid.Children.Add(textBox);
-        panel.Children.Add(grid);
+        UpdateSubOptions(killSelfProcess);
+
+        var subOptionsBorder = new Border
+        {
+            BorderThickness = new Thickness(2, 0, 0, 0),
+            Background = Brushes.Transparent,
+            Margin = new Thickness(24, 0, 0, 4),
+            Padding = new Thickness(8, 0, 0, 0),
+            Child = subOptionsContainer
+        };
+        subOptionsBorder.Bind(Border.BorderBrushProperty, new DynamicResourceExtension("SukiPrimaryColor"));
+        subOptionsBorder.Bind(Visual.IsVisibleProperty, new Binding("Children.Count")
+        {
+            Source = subOptionsContainer,
+            Converter = new FuncValueConverter<int, bool>(count => count > 0)
+        });
+
+        wrapper.Children.Add(subOptionsBorder);
+        panel.Children.Add(wrapper);
     }
 
     /// <summary>
@@ -1435,7 +1717,7 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
     private void AddComputerOperationOptions(StackPanel panel, DragItemViewModel dragItem)
     {
         var param = GetActionParam(dragItem);
-        var grid = CreateBaseGrid();
+        var grid = CreateSpecialTaskGrid(isFirstRow: true);
 
         var label = CreateLabelPanel(LangKeys.SpecialTask_OperationType, null, null, useI18n: true);
         label.Margin = new Thickness(10, 0, 0, 0);
@@ -1483,7 +1765,7 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         var param = GetActionParam(dragItem);
 
         // URL
-        var grid1 = CreateBaseGrid();
+        var grid1 = CreateSpecialTaskGrid(isFirstRow: true);
         var label1 = CreateLabelPanel("URL", null, null);
         label1.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(label1, 0);
@@ -1509,7 +1791,7 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         panel.Children.Add(grid1);
 
         // Method
-        var grid2 = CreateBaseGrid();
+        var grid2 = CreateSpecialTaskGrid();
         var label2 = CreateLabelPanel(LangKeys.SpecialTask_RequestMethod, null, null, useI18n: true);
         label2.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(label2, 0);
@@ -1539,7 +1821,7 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         panel.Children.Add(grid2);
 
         // Body
-        var grid3 = CreateBaseGrid();
+        var grid3 = CreateSpecialTaskGrid();
         var label3 = CreateLabelPanel(LangKeys.SpecialTask_RequestBody, null, null, useI18n: true);
         label3.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(label3, 0);
@@ -1567,7 +1849,7 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
         panel.Children.Add(grid3);
 
         // Content-Type
-        var grid4 = CreateBaseGrid();
+        var grid4 = CreateSpecialTaskGrid();
         var label4 = CreateLabelPanel("Content-Type", null, null);
         label4.Margin = new Thickness(10, 0, 0, 0);
         Grid.SetColumn(label4, 0);
@@ -1594,3 +1876,9 @@ public class TaskOptionGenerator(TaskQueueViewModel viewModel, Action saveConfig
 
     #endregion
 }
+
+
+
+
+
+

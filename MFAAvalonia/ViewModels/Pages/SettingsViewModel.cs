@@ -8,6 +8,8 @@ using MFAAvalonia.Extensions.MaaFW;
 using MFAAvalonia.Helper;
 using MFAAvalonia.Helper.ValueType;
 using MFAAvalonia.ViewModels.Other;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows.Input;
@@ -17,6 +19,7 @@ namespace MFAAvalonia.ViewModels.Pages;
 public partial class SettingsViewModel : ViewModelBase
 {
     private bool _hotkeysInitialized;
+    private bool _syncingCurrentConfiguration;
 
     protected override void Initialize()
     {
@@ -36,10 +39,11 @@ public partial class SettingsViewModel : ViewModelBase
         _hotkeysInitialized = true;
 
         SetHotKey(ref _hotKeyShowGui, _hotKeyShowGui, ConfigurationKeys.ShowGui,
-            Instances.RootViewModel.ToggleVisibleCommand);
+            Instances.RootViewModel.ToggleVisibleCommand, LangKeys.HotKeyShowGui);
 
         SetHotKey(ref _hotKeyLinkStart, _hotKeyLinkStart, ConfigurationKeys.LinkStart,
-            new RelayCommand(() => Instances.InstanceTabBarViewModel.ActiveTab?.TaskQueueViewModel?.ToggleCommand.Execute(null)));
+            new RelayCommand(() => Instances.InstanceTabBarViewModel.ActiveTab?.TaskQueueViewModel?.ToggleCommand.Execute(null)),
+            LangKeys.HotKeyLinkStart);
     }
 
     #region 多开实例管理
@@ -48,20 +52,66 @@ public partial class SettingsViewModel : ViewModelBase
     /// 多开实例列表（用于设置界面的配置管理）
     /// </summary>
     public ObservableCollection<InstanceTabViewModel> ConfigurationList => Instances.InstanceTabBarViewModel.Tabs;
+    public ObservableCollection<InstanceTabViewModel> FilteredConfigurationList { get; } = new();
 
     [ObservableProperty] private InstanceTabViewModel? _currentConfiguration;
+    [ObservableProperty] private bool _isConfigurationPopupOpen;
+    [ObservableProperty] private string _configurationSearchText = string.Empty;
+
+    public SettingsViewModel()
+    {
+        var tabVm = Instances.InstanceTabBarViewModel;
+        tabVm.PropertyChanged += OnInstanceTabBarViewModelPropertyChanged;
+        tabVm.Tabs.CollectionChanged += OnConfigurationListCollectionChanged;
+
+        RefreshCurrentConfiguration();
+        RefreshFilteredConfigurationList();
+    }
 
     partial void OnCurrentConfigurationChanged(InstanceTabViewModel? value)
     {
-        if (value != null)
+        if (value != null && !_syncingCurrentConfiguration)
         {
             Instances.InstanceTabBarViewModel.ActiveTab = value;
         }
+
+        IsConfigurationPopupOpen = false;
     }
 
     public void RefreshCurrentConfiguration()
     {
-        CurrentConfiguration = Instances.InstanceTabBarViewModel.ActiveTab;
+        _syncingCurrentConfiguration = true;
+        try
+        {
+            CurrentConfiguration = Instances.InstanceTabBarViewModel.ActiveTab
+                                   ?? ConfigurationList.FirstOrDefault();
+        }
+        finally
+        {
+            _syncingCurrentConfiguration = false;
+        }
+    }
+
+    partial void OnConfigurationSearchTextChanged(string value)
+    {
+        RefreshFilteredConfigurationList();
+    }
+
+    [RelayCommand]
+    private void ToggleConfigurationPopup()
+    {
+        IsConfigurationPopupOpen = !IsConfigurationPopupOpen;
+        if (IsConfigurationPopupOpen)
+        {
+            RefreshFilteredConfigurationList();
+        }
+    }
+
+    [RelayCommand]
+    private void SelectConfiguration(InstanceTabViewModel? configuration)
+    {
+        if (configuration == null) return;
+        CurrentConfiguration = configuration;
     }
 
     [ObservableProperty] private string _newConfigurationName = string.Empty;
@@ -103,6 +153,34 @@ public partial class SettingsViewModel : ViewModelBase
 
     #endregion 多开实例管理
 
+    private void OnInstanceTabBarViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(InstanceTabBarViewModel.ActiveTab))
+        {
+            RefreshCurrentConfiguration();
+        }
+    }
+
+    private void OnConfigurationListCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        RefreshFilteredConfigurationList();
+        RefreshCurrentConfiguration();
+    }
+
+    private void RefreshFilteredConfigurationList()
+    {
+        FilteredConfigurationList.Clear();
+        var query = ConfigurationSearchText?.Trim() ?? string.Empty;
+        foreach (var item in ConfigurationList)
+        {
+            if (string.IsNullOrEmpty(query)
+                || item.Name.Contains(query, System.StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredConfigurationList.Add(item);
+            }
+        }
+    }
+
     #region HotKey
     [ObservableProperty] private bool _enableHotKey = true;
     private MFAHotKey _hotKeyShowGui = MFAHotKey.NOTSET;
@@ -110,7 +188,8 @@ public partial class SettingsViewModel : ViewModelBase
     public MFAHotKey HotKeyShowGui
     {
         get => _hotKeyShowGui;
-        set => SetHotKey(ref _hotKeyShowGui, value, ConfigurationKeys.ShowGui, Instances.RootViewModel.ToggleVisibleCommand);
+        set => SetHotKey(ref _hotKeyShowGui, value, ConfigurationKeys.ShowGui, Instances.RootViewModel.ToggleVisibleCommand,
+            LangKeys.HotKeyShowGui);
     }
 
     private MFAHotKey _hotKeyLinkStart = MFAHotKey.NOTSET;
@@ -118,16 +197,22 @@ public partial class SettingsViewModel : ViewModelBase
     public MFAHotKey HotKeyLinkStart
     {
         get => _hotKeyLinkStart;
-        set => SetHotKey(ref _hotKeyLinkStart, value, ConfigurationKeys.LinkStart, new RelayCommand(() => Instances.InstanceTabBarViewModel.ActiveTab?.TaskQueueViewModel?.ToggleCommand.Execute(null)));
+        set => SetHotKey(ref _hotKeyLinkStart, value, ConfigurationKeys.LinkStart,
+            new RelayCommand(() => Instances.InstanceTabBarViewModel.ActiveTab?.TaskQueueViewModel?.ToggleCommand.Execute(null)),
+            LangKeys.HotKeyLinkStart);
     }
 
-    public void SetHotKey(ref MFAHotKey value, MFAHotKey? newValue, string type, ICommand command)
+    public void SetHotKey(ref MFAHotKey value, MFAHotKey? newValue, string type, ICommand command, string ownerResourceKey)
     {
         if (newValue != null)
         {
-            if (!GlobalHotkeyService.Register(newValue.Gesture, command))
+            if (!GlobalHotkeyService.Register(newValue.Gesture, command, ownerResourceKey, out var occupiedBy))
             {
-                newValue = MFAHotKey.ERROR;
+                newValue = new MFAHotKey(true)
+                {
+                    ResourceKey = "HotKeyOccupiedBy",
+                    ResourceArgsKeys = [occupiedBy ?? "UnknownItem"]
+                };
             }
             GlobalConfiguration.SetValue(type, newValue.ToString());
             SetProperty(ref value, newValue);

@@ -1,15 +1,18 @@
-using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using MFAAvalonia.Configuration;
 using MFAAvalonia.Extensions.MaaFW;
 using MFAAvalonia.Extensions;
 using MFAAvalonia.Helper;
 using MFAAvalonia.Helper.ValueType;
+using MFAAvalonia.ViewModels.UsersControls.Settings;
 using SukiUI.Controls;
 using SukiUI.Dialogs;
 using SukiUI.MessageBox;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -18,13 +21,34 @@ namespace MFAAvalonia.ViewModels.Other;
 public partial class InstanceTabBarViewModel : ViewModelBase
 {
     public ObservableCollection<InstanceTabViewModel> Tabs { get; } = new();
+    public ObservableCollection<RecentClosedInstanceItem> RecentClosedTabs { get; } = new();
+    public string DropdownSearchWatermark => "InstanceDropdownSearch".ToLocalization();
+    public string OpenConfigsHeaderText => "InstanceDropdownOpenConfigs".ToLocalization();
+    public string RecentClosedHeaderText => "InstanceDropdownRecentClosed".ToLocalization();
+    public string NoOpenConfigsText => "InstanceDropdownNoOpenConfigs".ToLocalization();
+    public string NoRecentClosedText => "InstanceDropdownNoRecentClosed".ToLocalization();
+    public string CloseConfigTooltipText => "InstanceDropdownCloseConfig".ToLocalization();
+    public bool HasRecentClosedItems => RecentClosedTabs.Count > 0;
+    public bool ShowRecentClosedSection => HasRecentClosedItems && IsRecentClosedExpanded;
+
+    private bool _isReloading;
 
     [ObservableProperty] private InstanceTabViewModel? _activeTab;
     [ObservableProperty] private bool _isDropdownOpen;
+    [ObservableProperty] private bool _hasInstancePresets;
+    [ObservableProperty] private List<MaaInterface.MaaInterfacePreset>? _instancePresets;
+    [ObservableProperty] private bool _isAddMenuOpen;
+    [ObservableProperty] private string _presetSearchText = string.Empty;
 
     [ObservableProperty] private string _searchText = string.Empty;
+    [ObservableProperty] private bool _isOpenTabsExpanded = true;
+    [ObservableProperty] private bool _isRecentClosedExpanded = true;
+    [ObservableProperty] private bool _showOpenTabsEmptyState;
+    [ObservableProperty] private bool _showRecentClosedEmptyState;
 
     public ObservableCollection<InstanceTabViewModel> FilteredTabs { get; } = new();
+    public ObservableCollection<RecentClosedInstanceItem> FilteredRecentClosedTabs { get; } = new();
+    public ObservableCollection<MaaInterface.MaaInterfacePreset> FilteredInstancePresets { get; } = new();
 
     partial void OnIsDropdownOpenChanged(bool value)
     {
@@ -32,12 +56,39 @@ public partial class InstanceTabBarViewModel : ViewModelBase
         {
             SearchText = string.Empty;
             RefreshFilteredTabs();
+            RefreshFilteredRecentClosedTabs();
         }
     }
 
     partial void OnSearchTextChanged(string value)
     {
         RefreshFilteredTabs();
+        RefreshFilteredRecentClosedTabs();
+    }
+
+    partial void OnIsOpenTabsExpandedChanged(bool value)
+    {
+        ShowOpenTabsEmptyState = value && FilteredTabs.Count == 0;
+    }
+
+    partial void OnIsRecentClosedExpandedChanged(bool value)
+    {
+        ShowRecentClosedEmptyState = value && FilteredRecentClosedTabs.Count == 0;
+        OnPropertyChanged(nameof(ShowRecentClosedSection));
+    }
+
+    partial void OnPresetSearchTextChanged(string value)
+    {
+        RefreshFilteredInstancePresets();
+    }
+
+    partial void OnIsAddMenuOpenChanged(bool value)
+    {
+        if (value)
+        {
+            PresetSearchText = string.Empty;
+            RefreshFilteredInstancePresets();
+        }
     }
 
     private void RefreshFilteredTabs()
@@ -51,12 +102,68 @@ public partial class InstanceTabBarViewModel : ViewModelBase
                 FilteredTabs.Add(tab);
             }
         }
+
+        ShowOpenTabsEmptyState = IsOpenTabsExpanded && FilteredTabs.Count == 0;
+    }
+
+    private void RefreshFilteredRecentClosedTabs()
+    {
+        FilteredRecentClosedTabs.Clear();
+        var query = SearchText?.Trim() ?? string.Empty;
+        foreach (var item in RecentClosedTabs)
+        {
+            if (string.IsNullOrEmpty(query)
+                || item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
+                || item.MetaText.Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredRecentClosedTabs.Add(item);
+            }
+        }
+
+        ShowRecentClosedEmptyState = IsRecentClosedExpanded && FilteredRecentClosedTabs.Count == 0;
+        OnPropertyChanged(nameof(HasRecentClosedItems));
+        OnPropertyChanged(nameof(ShowRecentClosedSection));
+    }
+
+    private void RefreshFilteredInstancePresets()
+    {
+        FilteredInstancePresets.Clear();
+        var presets = InstancePresets;
+        if (presets == null || presets.Count == 0)
+        {
+            return;
+        }
+
+        var query = PresetSearchText?.Trim() ?? string.Empty;
+        foreach (var preset in presets)
+        {
+            if (string.IsNullOrEmpty(query)
+                || (!string.IsNullOrWhiteSpace(preset.DisplayName)
+                    && preset.DisplayName.Contains(query, StringComparison.OrdinalIgnoreCase))
+                || (!string.IsNullOrWhiteSpace(preset.DisplayDescription)
+                    && preset.DisplayDescription.Contains(query, StringComparison.OrdinalIgnoreCase)))
+            {
+                FilteredInstancePresets.Add(preset);
+            }
+        }
     }
 
     [RelayCommand]
     private void ToggleDropdown()
     {
         IsDropdownOpen = !IsDropdownOpen;
+    }
+
+    [RelayCommand]
+    private void ToggleOpenTabsExpanded()
+    {
+        IsOpenTabsExpanded = !IsOpenTabsExpanded;
+    }
+
+    [RelayCommand]
+    private void ToggleRecentClosedExpanded()
+    {
+        IsRecentClosedExpanded = !IsRecentClosedExpanded;
     }
 
     [RelayCommand]
@@ -69,65 +176,174 @@ public partial class InstanceTabBarViewModel : ViewModelBase
         }
     }
 
+    [RelayCommand]
+    private async Task ReopenRecentClosed(RecentClosedInstanceItem? item)
+    {
+        if (item == null || string.IsNullOrWhiteSpace(item.ConfigContent)) return;
+
+        var targetInstanceId = Tabs.Any(t => t.InstanceId == item.InstanceId)
+            ? MaaProcessorManager.CreateInstanceId()
+            : item.InstanceId;
+
+        var targetPath = Path.Combine(InstanceConfiguration.InstancesDir, $"{targetInstanceId}.json");
+        Directory.CreateDirectory(InstanceConfiguration.InstancesDir);
+        File.WriteAllText(targetPath, item.ConfigContent);
+
+        var processor = MaaProcessorManager.Instance.CreateInstance(targetInstanceId, false);
+        if (!string.IsNullOrWhiteSpace(item.Name))
+        {
+            MaaProcessorManager.Instance.SetInstanceName(targetInstanceId, item.Name);
+        }
+
+        await Task.Run(() => processor.InitializeData());
+
+        ReloadTabs();
+        var tab = Tabs.FirstOrDefault(t => t.Processor == processor);
+        if (tab != null)
+        {
+            ActiveTab = tab;
+        }
+
+        RecentClosedTabs.Remove(item);
+        RefreshFilteredRecentClosedTabs();
+    }
+
 
     public InstanceTabBarViewModel()
     {
         ReloadTabs();
+        LanguageHelper.LanguageChanged += OnLanguageChanged;
         MaaProcessor.Processors.CollectionChanged += (_, _) =>
         {
             DispatcherHelper.PostOnMainThread(ReloadTabs);
         };
     }
 
+    private void OnLanguageChanged(object? sender, EventArgs e)
+    {
+        DispatcherHelper.PostOnMainThread(() =>
+        {
+            OnPropertyChanged(nameof(DropdownSearchWatermark));
+            OnPropertyChanged(nameof(OpenConfigsHeaderText));
+            OnPropertyChanged(nameof(RecentClosedHeaderText));
+            OnPropertyChanged(nameof(NoOpenConfigsText));
+            OnPropertyChanged(nameof(NoRecentClosedText));
+            OnPropertyChanged(nameof(CloseConfigTooltipText));
+
+            foreach (var item in RecentClosedTabs)
+            {
+                item.UpdateLocalization();
+            }
+
+            RefreshFilteredRecentClosedTabs();
+        });
+    }
+
     public void ReloadTabs()
     {
-        var processors = MaaProcessor.Processors.ToList();
-
-        // Use smart sync instead of clear/add to preserve view state
-        var toRemove = Tabs.Where(t => !processors.Contains(t.Processor)).ToList();
-        foreach (var t in toRemove)
+        _isReloading = true;
+        try
         {
-            Tabs.Remove(t);
+            var processors = MaaProcessor.Processors.ToList();
+
+            // 移除已不存在的
+            var toRemove = Tabs.Where(t => !processors.Contains(t.Processor)).ToList();
+            foreach (var t in toRemove)
+                Tabs.Remove(t);
+
+            // 添加新的
+            foreach (var processor in processors)
+            {
+                if (Tabs.All(t => t.Processor != processor))
+                    Tabs.Add(new InstanceTabViewModel(processor));
+            }
+
+            // 按 MaaProcessorManager 的 Instances 顺序排序
+            var orderedInstances = MaaProcessorManager.Instance.Instances.ToList();
+            for (var i = 0; i < orderedInstances.Count; i++)
+            {
+                var tab = Tabs.FirstOrDefault(t => t.Processor == orderedInstances[i]);
+                if (tab != null)
+                {
+                    var currentIndex = Tabs.IndexOf(tab);
+                    if (currentIndex != i && i < Tabs.Count)
+                        Tabs.Move(currentIndex, i);
+                }
+            }
+
+            RefreshFilteredTabs();
+            RefreshFilteredRecentClosedTabs();
+        }
+        finally
+        {
+            _isReloading = false;
         }
 
-        foreach (var processor in processors)
+        EnsureValidActiveTab();
+    }
+
+    private void EnsureValidActiveTab()
+    {
+        if (Tabs.Count == 0)
         {
-            if (Tabs.All(t => t.Processor != processor))
-            {
-                Tabs.Add(new InstanceTabViewModel(processor));
-            }
+            ActiveTab = null;
+            return;
         }
 
         var current = MaaProcessorManager.Instance.Current;
-        if (current != null)
+        var preferredTab = current == null
+            ? null
+            : Tabs.FirstOrDefault(t => t.InstanceId == current.InstanceId);
+
+        if (preferredTab != null)
         {
-            var tab = Tabs.FirstOrDefault(t => t.InstanceId == current.InstanceId);
-            if (tab != null && ActiveTab != tab)
-            {
-                ActiveTab = tab;
-            }
+            if (!ReferenceEquals(ActiveTab, preferredTab))
+                ActiveTab = preferredTab;
+            return;
         }
-        else if (Tabs.Count > 0 && ActiveTab == null)
-        {
+
+        if (ActiveTab == null || !Tabs.Contains(ActiveTab))
             ActiveTab = Tabs.First();
-        }
+    }
+
+    /// <summary>
+    /// 拖拽排序后保存标签顺序
+    /// </summary>
+    public void SaveTabOrder()
+    {
+        var orderedIds = Tabs.Select(t => t.InstanceId);
+        MaaProcessorManager.Instance.UpdateInstanceOrder(orderedIds);
     }
 
     partial void OnActiveTabChanged(InstanceTabViewModel? oldValue, InstanceTabViewModel? newValue)
     {
         if (oldValue != null) oldValue.IsActive = false;
+
+        if (newValue == null)
+        {
+            if (!_isReloading && Tabs.Count > 0)
+            {
+                DispatcherHelper.PostOnMainThread(() =>
+                {
+                    if (ActiveTab == null && Tabs.Count > 0)
+                        EnsureValidActiveTab();
+                });
+            }
+
+            return;
+        }
+
         if (newValue != null)
         {
             newValue.IsActive = true;
+            // 排序期间 Tabs.Move 可能导致 SelectedItem 变化触发此回调，跳过副作用
+            if (_isReloading) return;
             if (MaaProcessorManager.Instance.Current != newValue.Processor)
             {
                 SwitchToInstance(newValue.Processor);
             }
             else
             {
-                // 初始启动时 Current 已匹配，但 ConnectSettingsUserControlModel 的字段初始化器
-                // 可能在 Current 还是 "default" 实例时就已读取，导致枚举类型属性（截图模式、触控模式）
-                // 被错误地设为 Instance.default 的值。此处补一次同步确保 UI 反映正确的实例配置。
                 SyncConnectSettingsForCurrentInstance();
             }
         }
@@ -166,7 +382,7 @@ public partial class InstanceTabBarViewModel : ViewModelBase
         try
         {
             connect.CurrentControllerType = config.GetValue(MFAAvalonia.Configuration.ConfigurationKeys.CurrentController,
-               MaaControllerTypes.Adb, MaaControllerTypes.None,
+                MaaControllerTypes.Adb, MaaControllerTypes.None,
                 new MFAAvalonia.Helper.Converters.UniversalEnumConverter<MaaControllerTypes>());
             connect.RememberAdb = config.GetValue(MFAAvalonia.Configuration.ConfigurationKeys.RememberAdb, true);
             connect.UseFingerprintMatching = config.GetValue(MFAAvalonia.Configuration.ConfigurationKeys.UseFingerprintMatching, true);
@@ -218,17 +434,105 @@ public partial class InstanceTabBarViewModel : ViewModelBase
         }
     }
 
+    public void RefreshInstancePresets()
+    {
+        var presets = MaaProcessor.Interface?.Preset;
+        HasInstancePresets = presets is { Count: > 0 };
+        InstancePresets = presets;
+        RefreshFilteredInstancePresets();
+    }
 
     [RelayCommand]
     private async Task AddInstance()
     {
-        var processor = MaaProcessorManager.Instance.CreateInstance(false);
+        if (HasInstancePresets)
+        {
+            IsAddMenuOpen = true;
+            return;
+        }
+        await AddInstanceCoreAsync(null);
+    }
+
+    [RelayCommand]
+    private async Task AddInstanceWithPreset(MaaInterface.MaaInterfacePreset? preset)
+    {
+        IsAddMenuOpen = false;
+        await AddInstanceCoreAsync(preset);
+    }
+
+    private async Task AddInstanceCoreAsync(MaaInterface.MaaInterfacePreset? preset)
+    {
+        var lastTab = Tabs.LastOrDefault();
+
+        // 先将最右侧实例的当前任务列表（含勾选状态）保存到配置
+        var lastVm = lastTab?.TaskQueueViewModel;
+        if (lastVm != null)
+        {
+            lastTab!.Processor.InstanceConfiguration.SetValue(
+                ConfigurationKeys.TaskItems,
+                lastVm.TaskItemViewModels.Where(m => !m.IsResourceOptionItem).Select(model => model.InterfaceItem).ToList());
+        }
+
+        // 在创建实例前，先将配置文件复制到新实例位置，确保构造函数能读到完整配置
+        string? newId = null;
+        if (lastTab != null)
+        {
+            newId = MaaProcessorManager.CreateInstanceId();
+            lastTab.Processor.InstanceConfiguration.CopyToNewInstance(newId);
+
+            if (preset != null && lastVm != null)
+            {
+                var taskItemsWithoutSpecialTasks = lastVm.TaskItemViewModels
+                    .Where(m => !m.IsResourceOptionItem)
+                    .Where(m => !string.IsNullOrWhiteSpace(m.InterfaceItem?.Entry)
+                        ? !AddTaskDialogViewModel.SpecialActionNames.Contains(m.InterfaceItem!.Entry!)
+                        : true)
+                    .Select(model => model.InterfaceItem)
+                    .ToList();
+
+                var newInstanceConfig = new InstanceConfiguration(newId);
+                newInstanceConfig.SetValue(ConfigurationKeys.TaskItems, taskItemsWithoutSpecialTasks);
+                newInstanceConfig.SetValue(
+                    ConfigurationKeys.CurrentTasks,
+                    taskItemsWithoutSpecialTasks
+                        .Where(task => !string.IsNullOrWhiteSpace(task?.Name) && !string.IsNullOrWhiteSpace(task.Entry))
+                        .Select(task => $"{task!.Name}{TaskLoader.NEW_SEPARATOR}{task.Entry}")
+                        .Distinct()
+                        .ToList());
+            }
+        }
+
+        var processor = newId != null
+            ? MaaProcessorManager.Instance.CreateInstance(newId, false)
+            : MaaProcessorManager.Instance.CreateInstance(false);
+
         await Task.Run(() => processor.InitializeData());
 
-        // ReloadTabs 已通过 Processors.CollectionChanged 自动添加了 tab，无需手动添加
+        // 如果指定了预设，应用到新实例的 ViewModel，并使用预设的显示名称
+        if (preset != null)
+        {
+            processor.ViewModel?.ApplyPresetCommand.Execute(preset);
+            var presetDisplayName = preset.DisplayName;
+            if (string.IsNullOrWhiteSpace(presetDisplayName) || presetDisplayName.StartsWith("$", StringComparison.Ordinal))
+            {
+                presetDisplayName = LanguageHelper.GetLocalizedDisplayName(
+                    preset.Label,
+                    !string.IsNullOrWhiteSpace(preset.DisplayName) ? preset.DisplayName : preset.Name);
+            }
+
+            if (!string.IsNullOrWhiteSpace(presetDisplayName))
+            {
+                MaaProcessorManager.Instance.SetInstanceName(processor.InstanceId, presetDisplayName);
+            }
+        }
+
         var tab = Tabs.FirstOrDefault(t => t.Processor == processor);
         if (tab != null)
+        {
+            if (preset != null)
+                tab.UpdateName();
             ActiveTab = tab;
+        }
     }
 
     [RelayCommand]
@@ -244,12 +548,12 @@ public partial class InstanceTabBarViewModel : ViewModelBase
 
         if (tab.IsRunning)
         {
-            var result = await SukiUI.MessageBox.SukiMessageBox.ShowDialog(new SukiMessageBoxHost
+            var result = await SukiMessageBox.ShowDialog(new SukiMessageBoxHost
             {
                 Content = LangKeys.InstanceRunningCloseConfirm.ToLocalization(),
-                ActionButtonsPreset = SukiUI.MessageBox.SukiMessageBoxButtons.YesNo,
-                IconPreset = SukiUI.MessageBox.SukiMessageBoxIcons.Warning
-            }, new SukiUI.MessageBox.SukiMessageBoxOptions
+                ActionButtonsPreset = SukiMessageBoxButtons.YesNo,
+                IconPreset = SukiMessageBoxIcons.Warning
+            }, new SukiMessageBoxOptions
             {
                 Title = LangKeys.InstanceCloseTitle.ToLocalization()
             });
@@ -259,13 +563,55 @@ public partial class InstanceTabBarViewModel : ViewModelBase
             tab.Processor.Stop(MFATask.MFATaskStatus.STOPPED);
         }
 
+        // 检查定时任务是否使用了该实例，若有则重新分配
+        ReassignTimersFromInstance(tab.InstanceId, tab.Name);
+
+        var configPath = tab.Processor.InstanceConfiguration.GetConfigFilePath();
+        var configContent = File.Exists(configPath) ? File.ReadAllText(configPath) : string.Empty;
+        var recentClosedItem = RecentClosedInstanceItem.FromTab(tab, configContent);
+
         if (MaaProcessorManager.Instance.RemoveInstance(tab.InstanceId))
         {
-            Tabs.Remove(tab);
-            if (ActiveTab == tab || ActiveTab == null)
+            RecentClosedTabs.Remove(RecentClosedTabs.FirstOrDefault(item => item.InstanceId == tab.InstanceId));
+            RecentClosedTabs.Insert(0, recentClosedItem);
+            while (RecentClosedTabs.Count > 12)
             {
-                ActiveTab = Tabs.FirstOrDefault();
+                RecentClosedTabs.RemoveAt(RecentClosedTabs.Count - 1);
             }
+
+            Tabs.Remove(tab);
+            RefreshFilteredTabs();
+            RefreshFilteredRecentClosedTabs();
+            EnsureValidActiveTab();
+        }
+    }
+
+    /// <summary>
+    /// 将使用指定实例的定时任务重新分配到当前活跃实例
+    /// </summary>
+    private void ReassignTimersFromInstance(string instanceId, string instanceName)
+    {
+        var timerModel = TimerModel.Instance;
+        var reassigned = false;
+
+        foreach (var timer in timerModel.Timers)
+        {
+            if (timer.TimerConfig == instanceId)
+            {
+                // 分配到第一个非被删除的实例
+                var fallback = Tabs.FirstOrDefault(t => t.InstanceId != instanceId);
+                if (fallback != null)
+                {
+                    timer.TimerConfig = fallback.InstanceId;
+                    reassigned = true;
+                }
+            }
+        }
+
+        if (reassigned)
+        {
+            ToastHelper.Info(LangKeys.Tip.ToLocalization(), LangKeys.InstanceTimerReassigned.ToLocalizationFormatted(false, instanceName));
+            timerModel.RefreshInstanceList();
         }
     }
 
@@ -278,5 +624,40 @@ public partial class InstanceTabBarViewModel : ViewModelBase
             .WithTitle(LangKeys.TaskRename.ToLocalization())
             .WithViewModel(dialog => new RenameInstanceDialogViewModel(dialog, tab))
             .TryShow();
+    }
+}
+
+public sealed partial class RecentClosedInstanceItem : ViewModelBase
+{
+    public string InstanceId { get; init; } = string.Empty;
+    public string Name { get; init; } = string.Empty;
+    [ObservableProperty] private string _metaText = string.Empty;
+    [ObservableProperty] private string _timeText = string.Empty;
+    public string TaskCountText { get; init; } = string.Empty;
+    public string ConfigContent { get; init; } = string.Empty;
+
+    public void UpdateLocalization()
+    {
+        TimeText = "InstanceDropdownJustNow".ToLocalization();
+    }
+
+    public static RecentClosedInstanceItem FromTab(InstanceTabViewModel tab, string? configContent)
+    {
+        var metaParts = new[]
+            {
+                tab.ControllerBadgeText,
+                tab.ResourceBadgeText
+            }
+            .Where(static part => !string.IsNullOrWhiteSpace(part) && part != "-");
+
+        return new RecentClosedInstanceItem
+        {
+            InstanceId = tab.InstanceId,
+            Name = tab.Name,
+            MetaText = string.Join(" · ", metaParts),
+            TimeText = "InstanceDropdownJustNow".ToLocalization(),
+            TaskCountText = tab.TaskCountText,
+            ConfigContent = configContent ?? string.Empty
+        };
     }
 }

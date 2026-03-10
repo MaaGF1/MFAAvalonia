@@ -1,4 +1,4 @@
-﻿using Avalonia;
+using Avalonia;
 using Avalonia.Collections;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
@@ -17,7 +17,9 @@ using MFAAvalonia.Helper.ValueType;
 using MFAAvalonia.ViewModels.Other;
 using MFAAvalonia.ViewModels.UsersControls;
 using MFAAvalonia.ViewModels.UsersControls.Settings;
+using MFAAvalonia.Views.Windows;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using SukiUI.Dialogs;
 using System;
 using System.Buffers;
@@ -45,9 +47,12 @@ public partial class TaskQueueViewModel : ViewModelBase
         _currentController = _processorField.InstanceConfiguration.GetValue(ConfigurationKeys.CurrentController, MaaControllerTypes.Adb, MaaControllerTypes.None, new UniversalEnumConverter<MaaControllerTypes>());
         // 初始化为当前控制器类型，避免首次 AutoDetectDevice 时用 interface.json 覆盖用户已保存的配置
         _lastAppliedControllerSettingsType = _currentController;
+        // 提前从配置读取资源，避免 Initialize() 中 UpdateResourcesForController 以空字符串调用时
+        // 走 else 分支将第一个资源写入配置，覆盖用户已保存的资源选择
+        _currentResource = _processorField.InstanceConfiguration.GetValue(ConfigurationKeys.Resource, string.Empty);
         _enableLiveView = _processorField.InstanceConfiguration.GetValue(ConfigurationKeys.EnableLiveView, true);
         _liveViewRefreshRate = _processorField.InstanceConfiguration.GetValue(ConfigurationKeys.LiveViewRefreshRate, 30.0);
-        
+
         // Initialize LiveView Timer
         _liveViewTimer = new System.Timers.Timer();
         _liveViewTimer.Elapsed += OnLiveViewTimerElapsed;
@@ -56,7 +61,7 @@ public partial class TaskQueueViewModel : ViewModelBase
 
         IsRunning = _processorField.TaskQueue.Count > 0;
         _processorField.TaskQueue.CountChanged += OnTaskQueueCountChanged;
-        
+
         // Re-initialize with the correct processor since base constructor might have used Current
         Initialize();
     }
@@ -69,8 +74,7 @@ public partial class TaskQueueViewModel : ViewModelBase
         });
     }
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(Idle))]
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(Idle))]
     private bool _isRunning;
 
     public bool Idle => !IsRunning;
@@ -78,13 +82,13 @@ public partial class TaskQueueViewModel : ViewModelBase
     [ObservableProperty] private bool _isCompactMode = false;
 
     private bool _isSyncing = false;
-    
+
     /// <summary>
     /// 标记当前 CurrentDevice 变更是否为程序内部触发（刷新/配置加载等），
     /// 为 false 时表示用户通过 ComboBox 手动选择设备
     /// </summary>
     private bool _suppressAutoConnect = false;
-    
+
     /// <summary>
     /// 记录已应用过 interface.json 控制器设置的控制器类型，
     /// 避免每次刷新设备时都用 interface.json 的值覆盖用户配置
@@ -155,28 +159,35 @@ public partial class TaskQueueViewModel : ViewModelBase
             var allResources = MaaProcessor.Interface.Resources.Values.ToList();
             if (allResources.Count == 0)
             {
-                 allResources = [ new() { Name = "Default", Path = [MaaProcessor.ResourceBase] } ];
+                allResources =
+                [
+                    new()
+                    {
+                        Name = "Default",
+                        Path = [MaaProcessor.ResourceBase]
+                    }
+                ];
             }
 
             var currentControllerName = GetCurrentControllerName();
             var filteredResources = TaskLoader.FilterResourcesByController(allResources, currentControllerName);
-            
+
             foreach (var resource in filteredResources)
             {
                 resource.InitializeDisplayName();
                 TaskLoader.InitializeResourceSelectOptions(resource, MaaProcessor.Interface, Processor.InstanceConfiguration);
             }
-            
+
             var resourceToSelect = targetResource ?? CurrentResource;
             CurrentResources = new ObservableCollection<MaaInterface.MaaInterfaceResource>(filteredResources);
-            
+
             if (!string.IsNullOrWhiteSpace(resourceToSelect) && CurrentResources.Any(r => r.Name == resourceToSelect))
             {
-                 CurrentResource = resourceToSelect;
+                CurrentResource = resourceToSelect;
             }
             else
             {
-                 CurrentResource = CurrentResources.FirstOrDefault()?.Name ?? "Default";
+                CurrentResource = CurrentResources.FirstOrDefault()?.Name ?? "Default";
             }
         }
         catch (Exception ex)
@@ -231,6 +242,7 @@ public partial class TaskQueueViewModel : ViewModelBase
             DispatcherHelper.PostOnMainThread(() =>
             {
                 SelectedController = targetController;
+                _isSyncing = false;
             });
         }
         catch (Exception e)
@@ -242,6 +254,7 @@ public partial class TaskQueueViewModel : ViewModelBase
             DispatcherHelper.PostOnMainThread(() =>
             {
                 SelectedController = ControllerOptions.FirstOrDefault();
+                _isSyncing = false;
             });
         }
     }
@@ -320,10 +333,7 @@ public partial class TaskQueueViewModel : ViewModelBase
         catch (Exception e)
         {
             LoggerHelper.Error(e);
-        }
-        finally
-        {
-            DispatcherHelper.PostOnMainThread(() => _isSyncing = false);
+            _isSyncing = false;
         }
     }
 
@@ -368,7 +378,7 @@ public partial class TaskQueueViewModel : ViewModelBase
 
         if (CurrentResources.Count == 0 || string.IsNullOrWhiteSpace(CurrentResource) || CurrentResources.All(r => r.Name != CurrentResource))
         {
-            ToastHelper.Warn(LangKeys.CannotStart.ToLocalization(), "ResourceNotSelected".ToLocalization());
+            ToastHelper.Warn(LangKeys.CannotStart.ToLocalization(), LangKeys.ResourceNotSelected.ToLocalization());
             LoggerHelper.Warning(LangKeys.CannotStart.ToLocalization());
             return;
         }
@@ -381,7 +391,7 @@ public partial class TaskQueueViewModel : ViewModelBase
         {
             if (CurrentController != MaaControllerTypes.PlayCover && CurrentDevice == null)
             {
-                ToastHelper.Warn(LangKeys.CannotStart.ToLocalization(), "DeviceNotSelected".ToLocalization());
+                ToastHelper.Warn(LangKeys.CannotStart.ToLocalization(), LangKeys.DeviceNotSelected.ToLocalization());
                 LoggerHelper.Warning(LangKeys.CannotStart.ToLocalization());
                 return;
             }
@@ -404,12 +414,70 @@ public partial class TaskQueueViewModel : ViewModelBase
             return;
         }
 
+        // 验证所有已勾选任务的 input 选项
+        var failedTasks = new List<string>();
+        foreach (var task in TaskItemViewModels)
+        {
+            task.HasValidationError = false;
+            if (!task.IsChecked) continue;
+
+            var options = task.IsResourceOptionItem
+                ? task.ResourceItem?.SelectOptions
+                : task.InterfaceItem?.Option;
+            if (options == null) continue;
+
+            var error = ValidateOptionsRecursive(options);
+            if (error != null)
+            {
+                task.HasValidationError = true;
+                failedTasks.Add($"{task.Name}: {error}");
+            }
+        }
+
+        if (failedTasks.Count > 0)
+        {
+            ToastHelper.Warn(LangKeys.CannotStart.ToLocalization(), string.Join("\n", failedTasks));
+            return;
+        }
+
         Processor.Start();
     }
 
     public void StopTask(Action? action = null)
     {
         Processor.Stop(MFATask.MFATaskStatus.STOPPED, action: action);
+    }
+
+    private static string? ValidateOptionsRecursive(IEnumerable<MaaInterface.MaaInterfaceSelectOption> options)
+    {
+        foreach (var selectOption in options)
+        {
+            if (string.IsNullOrEmpty(selectOption.Name)) continue;
+            if (MaaProcessor.Interface?.Option?.TryGetValue(selectOption.Name, out var optDef) != true) continue;
+
+            if (optDef.IsInput)
+            {
+                var result = optDef.ValidateAllInputs(selectOption.Data);
+                if (!result.IsValid) return result.ErrorMessage;
+            }
+
+            if (selectOption.SubOptions is { Count: > 0 } && optDef.Cases != null)
+            {
+                var index = selectOption.Index ?? 0;
+                if (index >= 0 && index < optDef.Cases.Count)
+                {
+                    var selectedCase = optDef.Cases[index];
+                    if (selectedCase.Option is { Count: > 0 })
+                    {
+                        var activeNames = new HashSet<string>(selectedCase.Option);
+                        var subError = ValidateOptionsRecursive(
+                            selectOption.SubOptions.Where(s => activeNames.Contains(s.Name ?? string.Empty)));
+                        if (subError != null) return subError;
+                    }
+                }
+            }
+        }
+        return null;
     }
 
     [RelayCommand]
@@ -432,13 +500,315 @@ public partial class TaskQueueViewModel : ViewModelBase
         Instances.DialogManager.CreateDialog().WithTitle(LangKeys.AdbEditor.ToLocalization()).WithViewModel(dialog => new AddTaskDialogViewModel(dialog, Processor.TasksSource)).TryShow();
     }
 
+    /// <summary>
+    /// 当前 interface 中定义的预设列表（可观察，Interface 变更时通过 RefreshPresets 刷新）
+    /// </summary>
+    [ObservableProperty] private List<MaaInterface.MaaInterfacePreset>? _presets;
+
+    /// <summary>
+    /// 是否有可用的预设（可观察，Interface 变更时通过 RefreshPresets 刷新）
+    /// </summary>
+    [ObservableProperty] private bool _hasPresets;
+
+    /// <summary>
+    /// 刷新预设列表（在 MaaProcessor.Interface 变更后调用）
+    /// </summary>
+    public void RefreshPresets()
+    {
+        var presets = MaaProcessor.Interface?.Preset;
+        presets?.ForEach(p => p.InitializeDisplayName());
+        Presets = presets;
+        HasPresets = presets is { Count: > 0 };
+    }
+
+    [RelayCommand]
+    private void ApplyPreset(MaaInterface.MaaInterfacePreset preset)
+    {
+        if (preset?.Task == null) return;
+
+        // 1. 根据预设中的任务列表重建任务顺序与数量：
+        //    - 只保留预设中出现的任务（例如：默认 ABCD，预设只有 AB，则应用后只显示 AB 两个任务）
+        //    - 保留全局资源设置项（IsResourceOptionItem）
+        //    - 保留特殊任务（例如倒计时、自定义系统通知等）
+        var resourceOptionItems = TaskItemViewModels
+            .Where(t => t.IsResourceOptionItem)
+            .ToList();
+
+        var specialTasks = TaskItemViewModels
+            .Where(t => !string.IsNullOrWhiteSpace(t.InterfaceItem?.Entry)
+                && ViewModels.UsersControls.Settings.AddTaskDialogViewModel.SpecialActionNames.Contains(t.InterfaceItem.Entry!))
+            .ToList();
+
+        // 使用 TasksSource 作为模板，保证从 interface 原始定义克隆任务。
+        // 这里按名称保留模板源，但应用时必须按预设项出现顺序逐个克隆，
+        // 不能再按名称回查，否则同名任务（例如多个“自动出征”）会全部落到第一项上。
+        var templateDict = Processor.TasksSource
+            .Where(t => !string.IsNullOrEmpty(t.InterfaceItem?.Name))
+            .GroupBy(t => t.InterfaceItem!.Name!)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var presetTaskBindings = new List<(MaaInterface.MaaInterfacePresetTask PresetTask, DragItemViewModel DragItem)>();
+
+        // 重新构建 TaskItemViewModels
+        TaskItemViewModels.Clear();
+
+        // 先恢复资源选项项（保持原有顺序）
+        foreach (var item in resourceOptionItems)
+            TaskItemViewModels.Add(item);
+
+        // 再按预设顺序添加任务项，并记录“预设项 -> 新克隆任务项”的一一映射
+        foreach (var presetTask in preset.Task.Where(t => !string.IsNullOrEmpty(t.Name)))
+        {
+            if (!templateDict.TryGetValue(presetTask.Name!, out var templateVm)) continue;
+
+            var cloned = templateVm.Clone();
+            cloned.OwnerViewModel = this;
+            TaskItemViewModels.Add(cloned);
+            presetTaskBindings.Add((presetTask, cloned));
+        }
+
+        // 最后把特殊任务放到列表末尾
+        foreach (var special in specialTasks)
+            TaskItemViewModels.Add(special);
+
+        foreach (var (presetTask, dragItem) in presetTaskBindings)
+        {
+            if (!string.IsNullOrWhiteSpace(presetTask.Label) && dragItem.InterfaceItem != null)
+            {
+                dragItem.InterfaceItem.Remark = presetTask.Label;
+                dragItem.RefreshDisplayName();
+            }
+
+            // 设置勾选状态
+            if (presetTask.Enabled.HasValue)
+                dragItem.IsCheckedWithNull = presetTask.Enabled.Value;
+
+            // 设置选项值
+            if (presetTask.Option != null && dragItem.InterfaceItem?.Option != null)
+            {
+                foreach (var (optionName, optionValue) in presetTask.Option)
+                {
+                    // 先在顶级 Option 中按名称查找
+                    var selectOption = dragItem.InterfaceItem.Option.FirstOrDefault(o => o.Name == optionName);
+
+                    // 如果不是顶级选项，尝试作为子选项处理：
+                    // 递归在 option 树里查找/创建目标子选项，支持多级嵌套子选项。
+                    if (selectOption == null)
+                    {
+                        selectOption = FindOrCreateNestedPresetOption(dragItem.InterfaceItem.Option, optionName, presetTask.Name);
+                    }
+
+                    if (selectOption == null) continue;
+
+                    if (MaaProcessor.Interface?.Option?.TryGetValue(optionName, out var interfaceOption) != true) continue;
+
+                    if (interfaceOption.IsCheckbox)
+                    {
+                        // checkbox: string[] → SelectedCases
+                        if (optionValue.Type == Newtonsoft.Json.Linq.JTokenType.Array)
+                        {
+                            selectOption.SelectedCases = optionValue.ToObject<List<string>>() ?? new List<string>();
+                        }
+                        else if (optionValue.Type == Newtonsoft.Json.Linq.JTokenType.String)
+                        {
+                            selectOption.SelectedCases = new List<string> { optionValue.Value<string>() ?? string.Empty };
+                        }
+                    }
+                    else if (interfaceOption.IsInput)
+                    {
+                        // input: Dictionary<string, string> → Data
+                        // 单输入项同时支持字符串简写："选项名": "值"
+                        if (optionValue is Newtonsoft.Json.Linq.JObject jObj)
+                        {
+                            selectOption.Data ??= new Dictionary<string, string?>();
+                            foreach (var prop in jObj.Properties())
+                                selectOption.Data[prop.Name] = prop.Value.Value<string>();
+
+                            RefreshPresetOptionRuntimeState(selectOption);
+                        }
+                        else if (interfaceOption.Inputs is { Count: 1 } singleInputs)
+                        {
+                            var inputName = singleInputs[0].Name;
+                            if (!string.IsNullOrWhiteSpace(inputName))
+                            {
+                                selectOption.Data ??= new Dictionary<string, string?>();
+                                var inputValue = optionValue.Type == JTokenType.String
+                                    ? optionValue.Value<string>()
+                                    : optionValue.ToString(Formatting.None);
+                                selectOption.Data[inputName] = inputValue;
+                                RefreshPresetOptionRuntimeState(selectOption);
+                            }
+                        }
+                    }
+                    else if (optionValue.Type == Newtonsoft.Json.Linq.JTokenType.Object)
+                    {
+                        // 支持完整的选项对象结构（含子选项），例如：
+                        // { "index": 1, "selected_cases": [...], "data": {...}, "sub_options": [...] }
+                        var fullOption = optionValue.ToObject<MaaInterface.MaaInterfaceSelectOption>();
+                        if (fullOption != null)
+                        {
+                            selectOption.Index = fullOption.Index;
+                            selectOption.SelectedCases = fullOption.SelectedCases;
+                            selectOption.Data = fullOption.Data;
+                            selectOption.SubOptions = fullOption.SubOptions;
+                            RefreshPresetOptionRuntimeState(selectOption);
+                        }
+                    }
+                    else
+                    {
+                        // select/switch: string (case.name) → Index
+                        var caseName = optionValue.Value<string>();
+                        if (caseName != null && interfaceOption.Cases != null)
+                        {
+                            var idx = interfaceOption.Cases.FindIndex(c => c.Name == caseName);
+                            if (idx >= 0) selectOption.Index = idx;
+                        }
+                    }
+                }
+
+                // 切换 EnableSetting 强制重建选项控件（TaskOptionGenerator 是命令式创建，非数据绑定）
+                if (dragItem.EnableSetting)
+                {
+                    dragItem.EnableSetting = false;
+                    dragItem.EnableSetting = true;
+                }
+            }
+        }
+
+        Processor.InstanceConfiguration.SetValue(ConfigurationKeys.TaskItems, TaskItemViewModels.ToList().Select(model => model.InterfaceItem));
+    }
+
+    private void RefreshPresetOptionRuntimeState(MaaInterface.MaaInterfaceSelectOption option)
+    {
+        if (string.IsNullOrWhiteSpace(option.Name)) return;
+        if (MaaProcessor.Interface?.Option?.TryGetValue(option.Name, out var interfaceOption) != true) return;
+
+        if (interfaceOption.IsInput && interfaceOption.Inputs != null)
+        {
+            option.Data ??= new Dictionary<string, string?>();
+            foreach (var input in interfaceOption.Inputs)
+            {
+                if (!string.IsNullOrWhiteSpace(input.Name) && !option.Data.ContainsKey(input.Name))
+                    option.Data[input.Name] = input.Default ?? string.Empty;
+            }
+
+            if (interfaceOption.PipelineOverride != null)
+            {
+                option.PipelineOverride = interfaceOption.GenerateProcessedPipeline(
+                    option.Data
+                        .Where(kv => kv.Value != null)
+                        .ToDictionary(kv => kv.Key, kv => kv.Value!));
+            }
+        }
+
+        if (interfaceOption.IsCheckbox)
+            option.SelectedCases ??= new List<string>(interfaceOption.DefaultCases ?? new List<string>());
+
+        if (option.SubOptions == null) return;
+
+        foreach (var subOption in option.SubOptions)
+            RefreshPresetOptionRuntimeState(subOption);
+    }
+
+    private MaaInterface.MaaInterfaceSelectOption? FindOrCreateNestedPresetOption(
+        List<MaaInterface.MaaInterfaceSelectOption>? rootOptions,
+        string targetOptionName,
+        string? taskName)
+    {
+        if (rootOptions == null || string.IsNullOrWhiteSpace(targetOptionName)) return null;
+
+        foreach (var rootOption in rootOptions)
+        {
+            var found = FindOrCreateNestedPresetOptionRecursive(
+                rootOption,
+                targetOptionName,
+                taskName,
+                new HashSet<string>(StringComparer.Ordinal));
+            if (found != null) return found;
+        }
+
+        return null;
+    }
+
+    private MaaInterface.MaaInterfaceSelectOption? FindOrCreateNestedPresetOptionRecursive(
+        MaaInterface.MaaInterfaceSelectOption currentOption,
+        string targetOptionName,
+        string? taskName,
+        HashSet<string> visited)
+    {
+        if (string.IsNullOrWhiteSpace(currentOption.Name)) return null;
+        if (!visited.Add(currentOption.Name)) return null;
+
+        if (string.Equals(currentOption.Name, targetOptionName, StringComparison.Ordinal))
+            return currentOption;
+
+        if (MaaProcessor.Interface?.Option?.TryGetValue(currentOption.Name, out var currentOptionDef) != true ||
+            currentOptionDef.Cases == null)
+            return null;
+
+        foreach (var optionCase in currentOptionDef.Cases)
+        {
+            if (optionCase.Option == null) continue;
+
+            foreach (var childOptionName in optionCase.Option)
+            {
+                if (string.IsNullOrWhiteSpace(childOptionName)) continue;
+
+                if (!string.Equals(childOptionName, targetOptionName, StringComparison.Ordinal) &&
+                    !InterfaceOptionContainsTarget(childOptionName, targetOptionName, new HashSet<string>(StringComparer.Ordinal)))
+                    continue;
+
+                currentOption.SubOptions ??= new List<MaaInterface.MaaInterfaceSelectOption>();
+                var childOption = currentOption.SubOptions.FirstOrDefault(o => o.Name == childOptionName);
+                if (childOption == null)
+                {
+                    childOption = new MaaInterface.MaaInterfaceSelectOption { Name = childOptionName };
+                    TaskLoader.SetDefaultOptionValue(MaaProcessor.Interface, childOption);
+                    currentOption.SubOptions.Add(childOption);
+                }
+
+                if (string.Equals(childOptionName, targetOptionName, StringComparison.Ordinal))
+                    return childOption;
+
+                var found = FindOrCreateNestedPresetOptionRecursive(childOption, targetOptionName, taskName, visited);
+                if (found != null) return found;
+            }
+        }
+
+        return null;
+    }
+
+    private bool InterfaceOptionContainsTarget(string currentOptionName, string targetOptionName, HashSet<string> visited)
+    {
+        if (string.IsNullOrWhiteSpace(currentOptionName)) return false;
+        if (string.Equals(currentOptionName, targetOptionName, StringComparison.Ordinal)) return true;
+        if (!visited.Add(currentOptionName)) return false;
+
+        if (MaaProcessor.Interface?.Option?.TryGetValue(currentOptionName, out var currentOptionDef) != true ||
+            currentOptionDef.Cases == null)
+            return false;
+
+        foreach (var optionCase in currentOptionDef.Cases)
+        {
+            if (optionCase.Option == null) continue;
+
+            foreach (var childOptionName in optionCase.Option)
+            {
+                if (InterfaceOptionContainsTarget(childOptionName, targetOptionName, visited))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     [RelayCommand]
     private void ResetTasks()
     {
         // 保留特殊任务（倒计时、系统通知等用户手动添加的自定义 Action 任务）
         var specialTasks = TaskItemViewModels
             .Where(t => !string.IsNullOrWhiteSpace(t.InterfaceItem?.Entry)
-                        && ViewModels.UsersControls.Settings.AddTaskDialogViewModel.SpecialActionNames.Contains(t.InterfaceItem.Entry!))
+                && ViewModels.UsersControls.Settings.AddTaskDialogViewModel.SpecialActionNames.Contains(t.InterfaceItem.Entry!))
             .ToList();
 
         // 清空当前任务列表
@@ -588,8 +958,24 @@ public partial class TaskQueueViewModel : ViewModelBase
 
     [ObservableProperty] private int _shouldShow = 0;
     [ObservableProperty] private ObservableCollection<object> _devices = [];
-    [ObservableProperty] private object? _currentDevice;
-    
+       [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CurrentDeviceTooltipText))]
+    private object? _currentDevice;
+
+    private static bool IsSelectableDevice(object? value) => value is AdbDeviceInfo or DesktopWindowInfo;
+
+    private static EmptyDevicePlaceholder CreateEmptyDevicePlaceholder(MaaControllerTypes controllerType) =>
+        controllerType == MaaControllerTypes.Adb
+            ? new EmptyDevicePlaceholder(LangKeys.PleaseSelectEmulator.ToLocalization(), LangKeys.NoEmulatorFoundPlaceholder.ToLocalization())
+            : new EmptyDevicePlaceholder(LangKeys.PleaseSelectWindow.ToLocalization(), LangKeys.NoWindowFoundPlaceholder.ToLocalization());
+
+    private void SetEmptyDeviceState(MaaControllerTypes? controllerType = null)
+    {
+        var placeholder = CreateEmptyDevicePlaceholder(controllerType ?? CurrentController);
+        Devices = [placeholder];
+        CurrentDevice = null;
+    }
+
     [ObservableProperty] private bool _isConnected;
 
     public void SetConnected(bool connected)
@@ -606,14 +992,32 @@ public partial class TaskQueueViewModel : ViewModelBase
 
     partial void OnCurrentDeviceChanged(object? value)
     {
+        if (value is EmptyDevicePlaceholder)
+        {
+            _suppressAutoConnect = true;
+            try
+            {
+                CurrentDevice = null;
+            }
+            finally
+            {
+                _suppressAutoConnect = false;
+            }
+
+            SetConnected(false);
+            return;
+        }
+
         ChangedDevice(value);
 
         // 仅 ComboBox 手动选中设备时，根据"刷新后尝试连接"设置自动连接
-        if (!_suppressAutoConnect && !_isSyncing && value != null
+        if (!_suppressAutoConnect
+            && !_isSyncing
+            && IsSelectableDevice(value)
             && Instances.IsResolved<ConnectSettingsUserControlModel>()
             && Instances.ConnectSettingsUserControlModel.AutoConnectAfterRefresh)
         {
-            _ =TaskManager.RunTaskAsync(() =>
+            _ = TaskManager.RunTaskAsync(() =>
             {
                 try
                 {
@@ -646,32 +1050,65 @@ public partial class TaskQueueViewModel : ViewModelBase
                     _lastExecutionTime = now;
             }
         }
-        if (value is DesktopWindowInfo window)
+        if (value is EmptyDevicePlaceholder)
+        {
+            SetConnected(false);
+        }
+        else if (value is DesktopWindowInfo window)
         {
             if (!igoreToast) ToastHelper.Info(LangKeys.WindowSelectionMessage.ToLocalizationFormatted(false, ""), window.Name);
+            var isSameWindow = Processor.Config.DesktopWindow.HWnd == window.Handle
+                && Processor.Config.DesktopWindow.HWnd != IntPtr.Zero;
             Processor.Config.DesktopWindow.Name = window.Name;
             Processor.Config.DesktopWindow.HWnd = window.Handle;
             // 记录 ClassName 和 WindowName，下次启动时优先匹配
             Processor.InstanceConfiguration.SetValue(ConfigurationKeys.DesktopWindowClassName, window.ClassName);
             Processor.InstanceConfiguration.SetValue(ConfigurationKeys.DesktopWindowName, window.Name);
-            // SetTasker 内部会同步等待旧 Tasker 停止（最多 5s+），移到后台线程避免阻塞 UI
-            Task.Run(() => Processor.SetTasker());
+            // 正在连接或设备未变更时跳过 SetTasker，避免打断进行中的连接
+            if (!Processor.IsConnecting && !isSameWindow)
+                Task.Run(() => Processor.SetTasker());
         }
         else if (value is AdbDeviceInfo device)
         {
             if (!igoreToast) ToastHelper.Info(LangKeys.EmulatorSelectionMessage.ToLocalizationFormatted(false, ""), device.Name);
+            // 不依赖 IsConnected（AutoDetectDevice 会提前调用 SetConnected(false)），直接比较设备信息
+            var isSameDevice = !string.IsNullOrEmpty(Processor.Config.AdbDevice.AdbSerial)
+                && Processor.Config.AdbDevice.AdbSerial == device.AdbSerial
+                && Processor.Config.AdbDevice.AdbPath == device.AdbPath;
             Processor.Config.AdbDevice.Name = device.Name;
             Processor.Config.AdbDevice.AdbPath = device.AdbPath;
             Processor.Config.AdbDevice.AdbSerial = device.AdbSerial;
             Processor.Config.AdbDevice.Config = device.Config;
             Processor.Config.AdbDevice.Info = device;
-            // SetTasker 内部会同步等待旧 Tasker 停止（最多 5s+），移到后台线程避免阻塞 UI
-            Task.Run(() => Processor.SetTasker());
+            // 正在连接或设备未变更时跳过 SetTasker，避免打断进行中的连接
+            if (!Processor.IsConnecting && !isSameDevice)
+                Task.Run(() => Processor.SetTasker());
             Processor.InstanceConfiguration.SetValue(ConfigurationKeys.AdbDevice, device);
         }
     }
 
-    [ObservableProperty] private MaaControllerTypes _currentController = MaaControllerTypes.Adb;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CurrentDevicePlaceholderText))]
+    private MaaControllerTypes _currentController = MaaControllerTypes.Adb;
+
+    public string CurrentDevicePlaceholderText => CurrentController == MaaControllerTypes.Adb
+        ? LangKeys.PleaseSelectEmulator.ToLocalization()
+        : LangKeys.PleaseSelectWindow.ToLocalization();
+
+    public string CurrentDeviceTooltipText
+    {
+        get
+        {
+            if (CurrentDevice != null)
+            {
+                return new DeviceDisplayConverter().Convert(CurrentDevice, typeof(string), null!, System.Globalization.CultureInfo.CurrentCulture)?.ToString() ?? string.Empty;
+            }
+
+            return CurrentController == MaaControllerTypes.Adb
+                ? LangKeys.NoEmulatorFoundPlaceholder.ToLocalization()
+                : LangKeys.NoWindowFoundPlaceholder.ToLocalization();
+        }
+    }
 
     partial void OnCurrentControllerChanged(MaaControllerTypes value)
     {
@@ -679,45 +1116,44 @@ public partial class TaskQueueViewModel : ViewModelBase
         Processor.InstanceConfiguration.SetValue(ConfigurationKeys.CurrentController, value.ToString());
         if (Instances.IsResolved<ConnectSettingsUserControlModel>())
             Instances.ConnectSettingsUserControlModel.CurrentControllerType = value;
-        UpdateResourcesForController();
+        UpdateResourcesForController(CurrentResource);
         if (value == MaaControllerTypes.PlayCover)
         {
             TryReadPlayCoverConfig();
         }
-        
+
         // 切换控制器类型时，先取消正在进行的搜索并清空设备列表，
         // 防止旧控制器类型的设备在搜索期间仍然显示
         _refreshCancellationTokenSource?.Cancel();
         _suppressAutoConnect = true;
         try
         {
-            Devices = [];
-            CurrentDevice = null;
+            SetEmptyDeviceState(value);
         }
         finally
         {
             _suppressAutoConnect = false;
         }
         SetConnected(false);
-        
+
         if (!ConfigurationManager.IsSwitching)
         {
             Refresh();
         }
     }
-    
+
     [RelayCommand]
     private void CustomAdb()
     {
         var deviceInfo = CurrentDevice as AdbDeviceInfo;
 
-        Instances.DialogManager.CreateDialog().WithTitle("AdbEditor").WithViewModel(dialog => new AdbEditorDialogViewModel(deviceInfo, dialog)).Dismiss().ByClickingBackground().TryShow();
+        Instances.DialogManager.CreateDialog().WithTitle(LangKeys.AdbEditor.ToLocalization()).WithViewModel(dialog => new AdbEditorDialogViewModel(deviceInfo, dialog)).Dismiss().ByClickingBackground().TryShow();
     }
 
     [RelayCommand]
     private void EditPlayCover()
     {
-        Instances.DialogManager.CreateDialog().WithTitle("PlayCoverEditor")
+        Instances.DialogManager.CreateDialog().WithTitle(LangKeys.PlayCoverEditor.ToLocalization())
             .WithViewModel(dialog => new PlayCoverEditorDialogViewModel(Processor.Config.PlayCover, dialog))
             .Dismiss().ByClickingBackground().TryShow();
     }
@@ -729,14 +1165,19 @@ public partial class TaskQueueViewModel : ViewModelBase
     {
         if (CurrentResources.Count == 0 || string.IsNullOrWhiteSpace(CurrentResource) || CurrentResources.All(r => r.Name != CurrentResource))
         {
-            ToastHelper.Warn(LangKeys.CannotStart.ToLocalization(), "ResourceNotSelected".ToLocalization());
+            ToastHelper.Warn(LangKeys.CannotStart.ToLocalization(), LangKeys.ResourceNotSelected.ToLocalization());
             LoggerHelper.Warning(LangKeys.CannotStart.ToLocalization());
             return;
         }
 
+        if (await RefreshConnectionTargetIfNeededAsync())
+        {
+            LoggerHelper.Info("Reconnect: connection target was empty, refreshed device list before connecting.");
+        }
+
         if (CurrentController != MaaControllerTypes.PlayCover && CurrentDevice == null)
         {
-            ToastHelper.Warn(LangKeys.CannotStart.ToLocalization(), "DeviceNotSelected".ToLocalization());
+            ToastHelper.Warn(LangKeys.CannotStart.ToLocalization(), LangKeys.DeviceNotSelected.ToLocalization());
             LoggerHelper.Warning(LangKeys.CannotStart.ToLocalization());
             return;
         }
@@ -770,9 +1211,55 @@ public partial class TaskQueueViewModel : ViewModelBase
         }
     }
 
+    private bool NeedsRefreshBeforeReconnect()
+    {
+        if (CurrentController == MaaControllerTypes.None)
+            return true;
+
+        return CurrentController switch
+        {
+            MaaControllerTypes.PlayCover => false,
+            MaaControllerTypes.Adb => CurrentDevice is not AdbDeviceInfo adbInfo
+                || string.IsNullOrWhiteSpace(adbInfo.AdbSerial),
+            MaaControllerTypes.Win32 or MaaControllerTypes.Gamepad => CurrentDevice is not DesktopWindowInfo window
+                || window.Handle == IntPtr.Zero,
+            _ => CurrentDevice == null,
+        };
+    }
+
+    private async Task<bool> RefreshConnectionTargetIfNeededAsync()
+    {
+        if (!NeedsRefreshBeforeReconnect())
+            return false;
+
+        if (CurrentController == MaaControllerTypes.PlayCover)
+            return false;
+
+        try
+        {
+            await Task.Run(() => AutoDetectDevice());
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            LoggerHelper.Warning($"Refresh connection target before reconnect failed: {ex.Message}");
+        }
+
+        return true;
+    }
+
     [RelayCommand]
     private void Refresh()
     {
+        if (Processor.IsConnecting)
+        {
+            ToastHelper.Info(LangKeys.Tip.ToLocalization(), LangKeys.ConnectingInProgress.ToLocalization());
+            return;
+        }
+
         if (CurrentController == MaaControllerTypes.PlayCover)
         {
             SetConnected(false);
@@ -783,25 +1270,25 @@ public partial class TaskQueueViewModel : ViewModelBase
         _refreshCancellationTokenSource = new CancellationTokenSource();
         var controllerType = CurrentController;
         TaskManager.RunTask(() =>
-        {
-            AutoDetectDevice(_refreshCancellationTokenSource.Token);
-
-            // 刷新后自动连接（仅按钮触发的刷新）
-            if (CurrentDevice != null
-                && Instances.ConnectSettingsUserControlModel.AutoConnectAfterRefresh)
             {
-                try
+                AutoDetectDevice(_refreshCancellationTokenSource.Token);
+
+                // 刷新后自动连接（仅按钮触发的刷新）
+                if (CurrentDevice != null
+                    && Instances.ConnectSettingsUserControlModel.AutoConnectAfterRefresh)
                 {
-                    _refreshCancellationTokenSource.Token.ThrowIfCancellationRequested();
-                    Processor.TestConnecting().GetAwaiter().GetResult();
+                    try
+                    {
+                        _refreshCancellationTokenSource.Token.ThrowIfCancellationRequested();
+                        Processor.TestConnecting().GetAwaiter().GetResult();
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        LoggerHelper.Warning($"Auto connect after refresh failed: {ex.Message}");
+                    }
                 }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception ex)
-                {
-                    LoggerHelper.Warning($"Auto connect after refresh failed: {ex.Message}");
-                }
-            }
-        }, _refreshCancellationTokenSource.Token, name: "刷新", handleError: (e) => HandleDetectionError(e, controllerType),
+            }, _refreshCancellationTokenSource.Token, name: "刷新", handleError: (e) => HandleDetectionError(e, controllerType),
             catchException: true, shouldLog: true);
     }
 
@@ -820,9 +1307,10 @@ public partial class TaskQueueViewModel : ViewModelBase
 
 #pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
     [RelayCommand]
-    private void Export()
+    private async Task Export()
     {
-        FileLogExporter.CompressRecentLogs(Instances.RootView.StorageProvider);
+        var storageProvider = Instances.RootView?.StorageProvider;
+        await FileLogExporter.CompressRecentLogs(storageProvider);
     }
 
     public void AutoDetectDevice(CancellationToken token = default)
@@ -1036,11 +1524,15 @@ public partial class TaskQueueViewModel : ViewModelBase
             _suppressAutoConnect = true;
             try
             {
-                Devices = devices;
-                if (devices.Count > index)
-                    CurrentDevice = devices[index];
+                if (devices.Count == 0)
+                {
+                    SetEmptyDeviceState();
+                }
                 else
-                    CurrentDevice = null;
+                {
+                    Devices = devices;
+                    CurrentDevice = index >= 0 && index < devices.Count ? devices[index] : null;
+                }
             }
             finally
             {
@@ -1139,6 +1631,8 @@ public partial class TaskQueueViewModel : ViewModelBase
             16 => Win32InputMethod.PostThreadMessage,
             32 => Win32InputMethod.SendMessageWithCursorPos,
             64 => Win32InputMethod.PostMessageWithCursorPos,
+            128 => Win32InputMethod.SendMessageWithWindowPos,
+            256 => Win32InputMethod.PostMessageWithWindowPos,
             _ => null
         };
     }
@@ -1256,8 +1750,7 @@ public partial class TaskQueueViewModel : ViewModelBase
                     _suppressAutoConnect = true;
                     try
                     {
-                        Devices = [];
-                        CurrentDevice = null;
+                        SetEmptyDeviceState(MaaControllerTypes.Adb);
                     }
                     finally
                     {
@@ -1413,6 +1906,14 @@ public partial class TaskQueueViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// 判断是否为真正的资源选项项（排除全局选项项和控制器选项项）
+    /// </summary>
+    private static bool IsRealResourceOptionItem(DragItemViewModel item) =>
+        item.IsResourceOptionItem &&
+        item.ResourceItem?.Name != "__GlobalOption__" &&
+        item.ResourceItem?.Name?.StartsWith("__ControllerOption__") != true;
+
+    /// <summary>
     /// 根据当前资源更新任务列表的可见性和资源选项项
     /// </summary>
     /// <param name="resourceName">资源包名称</param>
@@ -1422,8 +1923,8 @@ public partial class TaskQueueViewModel : ViewModelBase
         var currentResource = CurrentResources.FirstOrDefault(r => r.Name == resourceName);
         var hasResourceOption = currentResource?.Option != null && currentResource.Option.Count > 0;
 
-        // 查找当前的资源选项项
-        var existingResourceOptionItem = TaskItemViewModels.FirstOrDefault(t => t.IsResourceOptionItem);
+        // 只查找真正的资源选项项（排除全局选项项和控制器选项项）
+        var existingResourceOptionItem = TaskItemViewModels.FirstOrDefault(IsRealResourceOptionItem);
 
         if (hasResourceOption)
         {
@@ -1432,33 +1933,45 @@ public partial class TaskQueueViewModel : ViewModelBase
 
             if (existingResourceOptionItem == null)
             {
-                // 需要添加资源选项项
-                var resourceOptionItem = new DragItemViewModel(currentResource!);
+                // 需要添加资源选项项，插入到全局选项项之后
+                var resourceOptionItem = new DragItemViewModel(currentResource!) { OwnerViewModel = this };
                 resourceOptionItem.IsVisible = true;
 
                 // 从配置中恢复已保存的选项值
                 RestoreResourceOptionValues(currentResource!);
 
-                TaskItemViewModels.Insert(0, resourceOptionItem);
+                TaskItemViewModels.Insert(FindResourceOptionInsertIndex(), resourceOptionItem);
             }
             else if (existingResourceOptionItem.ResourceItem?.Name != currentResource!.Name)
             {
                 // 资源选项项属于不同的资源，需要替换
                 var index = TaskItemViewModels.IndexOf(existingResourceOptionItem);
+                var wasShowingSettings = existingResourceOptionItem.EnableSetting;
+                if (wasShowingSettings)
+                    existingResourceOptionItem.EnableSetting = false;
                 TaskItemViewModels.Remove(existingResourceOptionItem);
 
-                var resourceOptionItem = new DragItemViewModel(currentResource);
+                var resourceOptionItem = new DragItemViewModel(currentResource) { OwnerViewModel = this };
                 resourceOptionItem.IsVisible = true;
 
                 // 从配置中恢复已保存的选项值
                 RestoreResourceOptionValues(currentResource);
 
-                TaskItemViewModels.Insert(index >= 0 ? index : 0, resourceOptionItem);
+                TaskItemViewModels.Insert(index >= 0 ? index : FindResourceOptionInsertIndex(), resourceOptionItem);
+
+                // 如果旧项正在显示设置面板，新项也打开
+                if (wasShowingSettings)
+                    resourceOptionItem.EnableSetting = true;
             }
             else
             {
-                // 同一资源，更新 SelectOptions
+                // 同一资源，更新 SelectOptions（控制器切换后 option 过滤条件可能变化，强制重建面板）
                 existingResourceOptionItem.ResourceItem = currentResource;
+                if (existingResourceOptionItem.EnableSetting)
+                {
+                    existingResourceOptionItem.EnableSetting = false;
+                    existingResourceOptionItem.EnableSetting = true;
+                }
             }
         }
         else
@@ -1474,7 +1987,10 @@ public partial class TaskQueueViewModel : ViewModelBase
             }
         }
 
-        // 更新每个任务的资源/控制器支持状态
+        // 更新控制器选项项（切换控制器时移除旧的、添加新的）
+        UpdateControllerOptionItemInList();
+
+        // 更新每个任务的资源/控制器支持状态，并刷新已打开的设置面板
         var currentControllerName = GetCurrentControllerName();
         foreach (var task in TaskItemViewModels)
         {
@@ -1482,8 +1998,156 @@ public partial class TaskQueueViewModel : ViewModelBase
             {
                 task.UpdateResourceSupport(resourceName);
                 task.UpdateControllerSupport(currentControllerName);
+
+                // 如果设置面板已打开，强制重建以反映新的资源/控制器过滤
+                if (task.EnableSetting)
+                {
+                    task.EnableSetting = false;
+                    task.EnableSetting = true;
+                }
             }
         }
+    }
+
+    /// <summary>
+    /// 计算资源选项项的插入位置（在全局选项项之后）
+    /// </summary>
+    private int FindResourceOptionInsertIndex()
+    {
+        var globalItem = TaskItemViewModels.FirstOrDefault(t =>
+            t.IsResourceOptionItem && t.ResourceItem?.Name == "__GlobalOption__");
+        return globalItem != null ? TaskItemViewModels.IndexOf(globalItem) + 1 : 0;
+    }
+
+    /// <summary>
+    /// 更新控制器选项项：移除不匹配当前控制器的旧项，添加当前控制器的新项
+    /// </summary>
+    private void UpdateControllerOptionItemInList()
+    {
+        var currentControllerName = GetCurrentControllerName();
+        var expectedSyntheticName = string.IsNullOrWhiteSpace(currentControllerName)
+            ? null
+            : $"__ControllerOption__{currentControllerName}";
+
+        // 移除所有不匹配当前控制器的控制器选项项，记录是否有项正在显示设置面板
+        var hadEnabledSetting = false;
+        var staleItems = TaskItemViewModels
+            .Where(t => t.IsResourceOptionItem &&
+                        t.ResourceItem?.Name?.StartsWith("__ControllerOption__") == true &&
+                        t.ResourceItem?.Name != expectedSyntheticName)
+            .ToList();
+        foreach (var item in staleItems)
+        {
+            if (item.EnableSetting)
+            {
+                hadEnabledSetting = true;
+                item.EnableSetting = false;
+            }
+            TaskItemViewModels.Remove(item);
+        }
+
+        if (expectedSyntheticName == null) return;
+
+        // 已存在则检查是否需要刷新（控制器未变但资源变化时可能需要重建面板）
+        var existingControllerItem = TaskItemViewModels.FirstOrDefault(t =>
+            t.IsResourceOptionItem && t.ResourceItem?.Name == expectedSyntheticName);
+        if (existingControllerItem != null)
+        {
+            if (existingControllerItem.EnableSetting)
+            {
+                existingControllerItem.EnableSetting = false;
+                existingControllerItem.EnableSetting = true;
+            }
+            return;
+        }
+
+        // 获取当前控制器对象
+        var controllerObj = MaaProcessor.Interface?.Controller?.FirstOrDefault(c =>
+            c.Name != null && c.Name.Equals(currentControllerName, StringComparison.OrdinalIgnoreCase));
+        if (controllerObj == null) return;
+
+        // 确保控制器的 SelectOptions 已初始化
+        if ((controllerObj.SelectOptions == null || controllerObj.SelectOptions.Count == 0)
+            && controllerObj.Option is { Count: > 0 })
+        {
+            InitializeControllerSelectOptionsForController(controllerObj);
+        }
+
+        if (controllerObj.SelectOptions == null || controllerObj.SelectOptions.Count == 0) return;
+
+        // 创建控制器选项项并插入到资源选项项之后
+        var syntheticResource = new MaaInterface.MaaInterfaceResource
+        {
+            Name = expectedSyntheticName,
+            SelectOptions = controllerObj.SelectOptions,
+        };
+        syntheticResource.InitializeDisplayName();
+
+        var newItem = new DragItemViewModel(syntheticResource) { OwnerViewModel = this };
+        newItem.IsVisible = true;
+        TaskItemViewModels.Insert(FindControllerOptionInsertIndex(), newItem);
+
+        // 如果旧控制器选项项正在显示设置面板，新项也打开
+        if (hadEnabledSetting)
+            newItem.EnableSetting = true;
+    }
+
+    /// <summary>
+    /// 计算控制器选项项的插入位置（在资源选项项之后，普通任务之前）
+    /// </summary>
+    private int FindControllerOptionInsertIndex()
+    {
+        // 找到最后一个资源选项项（真正的资源选项项）
+        var resourceItem = TaskItemViewModels.LastOrDefault(IsRealResourceOptionItem);
+        if (resourceItem != null)
+            return TaskItemViewModels.IndexOf(resourceItem) + 1;
+
+        // 没有资源选项项，插入到全局选项项之后
+        var globalItem = TaskItemViewModels.FirstOrDefault(t =>
+            t.IsResourceOptionItem && t.ResourceItem?.Name == "__GlobalOption__");
+        return globalItem != null ? TaskItemViewModels.IndexOf(globalItem) + 1 : 0;
+    }
+
+    /// <summary>
+    /// 初始化指定控制器的 SelectOptions（从配置中恢复已保存的值）
+    /// </summary>
+    private void InitializeControllerSelectOptionsForController(MaaInterface.MaaResourceController controller)
+    {
+        if (controller.Option == null || controller.Option.Count == 0)
+        {
+            controller.SelectOptions = null;
+            return;
+        }
+
+        var savedOptions = Processor.InstanceConfiguration.GetValue(
+            ConfigurationKeys.ControllerOptionItems,
+            new Dictionary<string, List<MaaInterface.MaaInterfaceSelectOption>>());
+
+        Dictionary<string, MaaInterface.MaaInterfaceSelectOption>? savedDict = null;
+        if (savedOptions.TryGetValue(controller.Name ?? string.Empty, out var savedList) && savedList != null)
+            savedDict = savedList.ToDictionary(o => o.Name ?? string.Empty);
+
+        var existingDict = controller.SelectOptions?.ToDictionary(o => o.Name ?? string.Empty)
+            ?? new Dictionary<string, MaaInterface.MaaInterfaceSelectOption>();
+
+        controller.SelectOptions = controller.Option.Select(optionName =>
+        {
+            if (existingDict.TryGetValue(optionName, out var existing))
+                return existing;
+            if (savedDict?.TryGetValue(optionName, out var saved) == true)
+            {
+                return new MaaInterface.MaaInterfaceSelectOption
+                {
+                    Name = saved.Name,
+                    Index = saved.Index,
+                    Data = saved.Data != null ? new Dictionary<string, string?>(saved.Data) : null,
+                    SelectedCases = saved.SelectedCases != null ? new List<string>(saved.SelectedCases) : null,
+                };
+            }
+            var opt = new MaaInterface.MaaInterfaceSelectOption { Name = optionName };
+            TaskLoader.SetDefaultOptionValue(MaaProcessor.Interface, opt);
+            return opt;
+        }).ToList();
     }
 
     /// <summary>
@@ -1556,7 +2220,8 @@ public partial class TaskQueueViewModel : ViewModelBase
                         Name = savedOpt.Name,
                         Index = savedOpt.Index,
                         Data = savedOpt.Data != null ? new Dictionary<string, string?>(savedOpt.Data) : null,
-                        SubOptions = savedOpt.SubOptions != null ? CloneSubOptions(savedOpt.SubOptions) : null
+                        SubOptions = savedOpt.SubOptions != null ? CloneSubOptions(savedOpt.SubOptions) : null,
+                        SelectedCases = savedOpt.SelectedCases != null ? new List<string>(savedOpt.SelectedCases) : null,
                     };
                     return clonedOpt;
                 }
@@ -1667,10 +2332,10 @@ public partial class TaskQueueViewModel : ViewModelBase
                         var screencapType = Processor.ScreenshotType();
                         var controllerType = CurrentController;
                         var reason = controllerType == MaaControllerTypes.Adb
-                            ? "可能原因: 模拟器窗口最小化/屏幕关闭、截图方式不兼容、设备未完全启动"
-                            : "可能原因: 目标窗口最小化/隐藏/被遮挡、截图方式不兼容";
+                            ? LangKeys.LiveViewNoImageReasonAdb.ToLocalization()
+                            : LangKeys.LiveViewNoImageReasonWindow.ToLocalization();
                         LoggerHelper.Warning($"[LiveView] 已连接但获取画面为空 (截图方式: {screencapType}, 控制器: {controllerType}). {reason}");
-                        AddLog($"warn: 实时画面已连接但无法获取画面 ({screencapType}), {reason}", (IBrush?)null);
+                        AddLog($"warn: {LangKeys.LiveViewNoImageWarning.ToLocalizationFormatted(false, screencapType, reason)}", (IBrush?)null);
                     }
                     return;
                 }
@@ -1746,10 +2411,8 @@ public partial class TaskQueueViewModel : ViewModelBase
     private int _liveViewImageCount;
     private int _liveViewImageNewestCount;
 
-    private static int _liveViewSemaphoreCurrentCount = 2;
     private const int LiveViewSemaphoreMaxCount = 5;
-    private static int _liveViewSemaphoreFailCount = 0;
-    private static readonly SemaphoreSlim _liveViewSemaphore = new(_liveViewSemaphoreCurrentCount, LiveViewSemaphoreMaxCount);
+    private static readonly SemaphoreSlim _liveViewSemaphore = new(2, LiveViewSemaphoreMaxCount);
 
     private readonly WriteableBitmap?[] _liveViewImageCache = new WriteableBitmap?[LiveViewSemaphoreMaxCount];
 
@@ -1790,21 +2453,6 @@ public partial class TaskQueueViewModel : ViewModelBase
     {
         if (!await _liveViewSemaphore.WaitAsync(0))
         {
-            if (++_liveViewSemaphoreFailCount < 3)
-            {
-                buffer?.Dispose();
-                return;
-            }
-
-            _liveViewSemaphoreFailCount = 0;
-
-            if (_liveViewSemaphoreCurrentCount < LiveViewSemaphoreMaxCount)
-            {
-                _liveViewSemaphoreCurrentCount++;
-                _liveViewSemaphore.Release();
-                LoggerHelper.Info($"LiveView Semaphore Full, increase semaphore count to {_liveViewSemaphoreCurrentCount}");
-            }
-
             buffer?.Dispose();
             return;
         }
@@ -1868,7 +2516,6 @@ public partial class TaskQueueViewModel : ViewModelBase
             });
 
             Interlocked.Exchange(ref _liveViewImageNewestCount, count);
-            _liveViewSemaphoreFailCount = 0;
 
             var now = DateTime.UtcNow;
             Interlocked.Increment(ref _liveViewFrameCount);
@@ -1985,7 +2632,7 @@ public partial class TaskQueueViewModel : ViewModelBase
     }
 
     #endregion
-    
+
     #region 配置切换
 
     /// <summary>
@@ -2011,5 +2658,6 @@ public partial class TaskQueueViewModel : ViewModelBase
         }
 
     }
+
     #endregion
 }

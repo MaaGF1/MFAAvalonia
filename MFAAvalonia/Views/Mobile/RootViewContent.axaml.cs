@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Markup.Xaml;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using MFAAvalonia.Configuration;
@@ -74,6 +75,16 @@ public partial class RootViewContent : UserControl
         var homeItem = sideMenu?.Items.OfType<SukiSideMenuItem>().FirstOrDefault();
         if (homeItem != null && sideMenu != null)
             sideMenu.SelectedItem = homeItem;
+    }
+
+    private void SwitchToDarkTheme(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Instances.GuiSettingsUserControlModel.BaseTheme = ThemeVariant.Dark;
+    }
+
+    private void SwitchToLightTheme(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        Instances.GuiSettingsUserControlModel.BaseTheme = ThemeVariant.Light;
     }
 
     #endregion

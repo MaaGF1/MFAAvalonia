@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using MFAAvalonia.Extensions.MaaFW;
 using MFAAvalonia.Helper;
 using System;
@@ -10,8 +11,32 @@ namespace MFAAvalonia.ViewModels.Pages;
 
 public partial class MonitorViewModel : ViewModelBase, IDisposable
 {
+    private const double BaseCardWidth = 360;
+    private const double BaseCardHeight = 240;
+    private const double MinCardScale = 0.6;
+    private const double MaxCardScale = 1.8;
+    private const double CardScaleStep = 0.1;
+
     public ObservableCollection<MonitorItemViewModel> Items { get; } = new();
     private readonly DispatcherTimer _timer;
+
+    [ObservableProperty]
+    private int _sortIndex;
+
+    [ObservableProperty]
+    private double _cardScale = 1.0;
+
+    public double CardWidth => BaseCardWidth * CardScale;
+    public double CardHeight => BaseCardHeight * CardScale;
+    public string CardScaleText => $"{(int)Math.Round(CardScale * 100)}%";
+
+    partial void OnSortIndexChanged(int value) => ApplySort();
+    partial void OnCardScaleChanged(double value)
+    {
+        OnPropertyChanged(nameof(CardWidth));
+        OnPropertyChanged(nameof(CardHeight));
+        OnPropertyChanged(nameof(CardScaleText));
+    }
 
     public MonitorViewModel()
     {
@@ -49,8 +74,35 @@ public partial class MonitorViewModel : ViewModelBase, IDisposable
             {
                 if (!Items.Any(i => i.Processor == p))
                 {
-                    Items.Add(new MonitorItemViewModel(p));
+                    Items.Add(new MonitorItemViewModel(p, this));
                 }
+            }
+
+            if (SortIndex != 0)
+                ApplySort();
+        });
+    }
+
+    private void ApplySort()
+    {
+        DispatcherHelper.PostOnMainThread(() =>
+        {
+            var sorted = SortIndex switch
+            {
+                1 => Items.OrderByDescending(i => i.IsRunning)
+                    .ThenByDescending(i => i.IsConnected).ToList(),
+                2 => Items.OrderBy(i => i.Name, StringComparer.CurrentCulture).ToList(),
+                3 => Items.OrderBy(i => i.CreatedAt).ToList(),
+                _ => null
+            };
+
+            if (sorted == null) return;
+
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var oldIndex = Items.IndexOf(sorted[i]);
+                if (oldIndex != i)
+                    Items.Move(oldIndex, i);
             }
         });
     }
@@ -58,11 +110,21 @@ public partial class MonitorViewModel : ViewModelBase, IDisposable
     private void UpdateAll()
     {
         foreach(var item in Items)
-        {
             item.UpdateInfo();
-            // Run image update in background
-            System.Threading.Tasks.Task.Run(() => item.UpdateImage());
-        }
+    }
+
+    [RelayCommand]
+    private void ZoomIn()
+    {
+        var next = Math.Round(CardScale + CardScaleStep, 2);
+        CardScale = Math.Clamp(next, MinCardScale, MaxCardScale);
+    }
+
+    [RelayCommand]
+    private void ZoomOut()
+    {
+        var next = Math.Round(CardScale - CardScaleStep, 2);
+        CardScale = Math.Clamp(next, MinCardScale, MaxCardScale);
     }
 
     public void Dispose()

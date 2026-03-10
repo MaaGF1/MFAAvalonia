@@ -22,6 +22,8 @@ public static class ConfigurationKeys
     public const string EnableEdit = "EnableEdit";
     public const string TaskItems = "TaskItems";
     public const string ResourceOptionItems = "ResourceOptionItems";
+    public const string GlobalOptionItems = "GlobalOptionItems";
+    public const string ControllerOptionItems = "ControllerOptionItems";
 
     #endregion
 
@@ -194,6 +196,7 @@ public static class ConfigurationKeys
         TaskItems,
         CurrentTasks,
         ResourceOptionItems,
+        ControllerOptionItems,
         BeforeTask,
         AfterTask,
         SoftwarePath,
@@ -241,6 +244,9 @@ public static class ConfigurationKeys
 
     /// <summary>最后激活的实例ID</summary>
     public const string LastActiveInstance = "Instances.LastActive";
+
+    /// <summary>最后激活的实例名称（当实例ID失效时用于回退匹配）</summary>
+    public const string LastActiveInstanceName = "Instances.LastActiveName";
 
     /// <summary>实例名称（存储在各实例独立 JSON 中）</summary>
     public const string InstanceName = "InstanceName";

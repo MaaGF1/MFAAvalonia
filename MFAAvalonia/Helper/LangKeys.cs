@@ -56,12 +56,16 @@ public static class LangKeys
 	public static readonly string CannotStart = "CannotStart";
 	public static readonly string CaptureModeOption = "CaptureModeOption";
 	public static readonly string CheckMFA = "CheckMFA";
+	public static readonly string CheckUpdate = "CheckUpdate";
 	public static readonly string CheckResource = "CheckResource";
 	public static readonly string ClipboardDataError = "ClipboardDataError";
 	public static readonly string CloseEmulator = "CloseEmulator";
 	public static readonly string CloseEmulatorAndMFA = "CloseEmulatorAndMFA";
 	public static readonly string CloseEmulatorAndRestartMFA = "CloseEmulatorAndRestartMFA";
 	public static readonly string CloseMFA = "CloseMFA";
+	public static readonly string CloseTargetProgram = "CloseTargetProgram";
+	public static readonly string CloseTargetProgramAndMFA = "CloseTargetProgramAndMFA";
+	public static readonly string CloseTargetProgramAndRestartMFA = "CloseTargetProgramAndRestartMFA";
 	public static readonly string ColorPickerTitle = "ColorPickerTitle";
 	public static readonly string ColorTheme = "ColorTheme";
 	public static readonly string CommonSetting = "CommonSetting";
@@ -239,20 +243,26 @@ public static class LangKeys
 	public static readonly string NewVersionFoundDescDownloading = "NewVersionFoundDescDownloading";
 	public static readonly string No = "No";
 	public static readonly string NoEmulatorFound = "NoEmulatorFound";
+	public static readonly string NoEmulatorFoundPlaceholder = "NoEmulatorFoundPlaceholder";
 	public static readonly string None = "None";
 	public static readonly string NoTaskToStop = "NoTaskToStop";
 	public static readonly string NoWindowFound = "NoWindowFound";
+	public static readonly string NoWindowFoundPlaceholder = "NoWindowFoundPlaceholder";
 	public static readonly string Nox = "Nox";
 	public static readonly string Off = "Off";
 	public static readonly string Ok = "Ok";
 	public static readonly string OperateController = "OperateController";
+	public static readonly string PleaseSelectEmulator = "PleaseSelectEmulator";
+	public static readonly string PleaseSelectWindow = "PleaseSelectWindow";
 	public static readonly string Paste = "Paste";
 	public static readonly string PasteAbove = "PasteAbove";
 	public static readonly string PasteBelow = "PasteBelow";
 	public static readonly string PerformanceSettings = "PerformanceSettings";
+	public static readonly string PerformanceBenchmark = "PerformanceBenchmark";
 	public static readonly string PipelineLoadError = "PipelineLoadError";
 	public static readonly string Postscript = "Postscript";
 	public static readonly string Prescript = "Prescript";
+	public static readonly string PlayCoverEditor = "PlayCoverEditor";
 	public static readonly string ProjectDescription = "ProjectDescription";
 	public static readonly string ProjectLink = "ProjectLink";
 	public static readonly string PurchaseLink = "PurchaseLink";
@@ -267,6 +277,8 @@ public static class LangKeys
 	public static readonly string RescanController = "RescanController";
 	public static readonly string ResourceDownloadSource = "ResourceDownloadSource";
 	public static readonly string ResourceLink = "ResourceLink";
+	public static readonly string GlobalOption = "GlobalOption";
+	public static readonly string ControllerPresetConfig = "ControllerPresetConfig";
 	public static readonly string ResourceName = "ResourceName";
 	public static readonly string ResourceOption = "ResourceOption";
 	public static readonly string ResourcesAreLatestVersion = "ResourcesAreLatestVersion";
@@ -299,6 +311,7 @@ public static class LangKeys
 	public static readonly string ShowDisclaimerNoMore = "ShowDisclaimerNoMore";
 	public static readonly string ShowHitDraw = "ShowHitDraw";
 	public static readonly string ShutDown = "ShutDown";
+	public static readonly string ShutDownOnce = "ShutDownOnce";
 	public static readonly string SliderControlTitle = "SliderControlTitle";
 	public static readonly string SoftwarePath = "SoftwarePath";
 	public static readonly string SoftwareUpdate = "SoftwareUpdate";
@@ -342,6 +355,7 @@ public static class LangKeys
 	public static readonly string ThemeOption = "ThemeOption";
 	public static readonly string ThemeSettings = "ThemeSettings";
 	public static readonly string Timer = "Timer";
+	public static readonly string TimerAction = "TimerAction";
 	public static readonly string TimerCustomConfig = "TimerCustomConfig";
 	public static readonly string TimerCustomConfigTip = "TimerCustomConfigTip";
 	public static readonly string Tip = "Tip";
@@ -381,6 +395,9 @@ public static class LangKeys
 	public static readonly string ExternalNotificationServerChanSendKey = "ExternalNotificationServerChanSendKey";
 	public static readonly string CreateCustomTheme = "CreateCustomTheme";
 	public static readonly string ConfigurePrimaryAccent = "ConfigurePrimaryAccent";
+	public static readonly string CustomThemeName = "CustomThemeName";
+	public static readonly string CustomThemePrimaryColor = "CustomThemePrimaryColor";
+	public static readonly string CustomThemeAccentColor = "CustomThemeAccentColor";
 	public static readonly string ColorThemeAlreadyExists = "ColorThemeAlreadyExists";
 	public static readonly string Later = "Later";
 	public static readonly string ErrorWhenCheck = "ErrorWhenCheck";
@@ -415,9 +432,15 @@ public static class LangKeys
 	public static readonly string AlphaVersion = "AlphaVersion";
 	public static readonly string UIUpdateChannel = "UIUpdateChannel";
 	public static readonly string ExportLog = "ExportLog";
+	public static readonly string ExportLogInProgress = "ExportLogInProgress";
+	public static readonly string ExportLogNoEligibleFiles = "ExportLogNoEligibleFiles";
+	public static readonly string ExportLogSuccess = "ExportLogSuccess";
+	public static readonly string ExportLogFailed = "ExportLogFailed";
 	public static readonly string ClearCache = "ClearCache";
 	public static readonly string ClearCacheSuccess = "ClearCacheSuccess";
 	public static readonly string ClearCacheFailed = "ClearCacheFailed";
+	public static readonly string ClearCacheStopInstanceFailed = "ClearCacheStopInstanceFailed";
+	public static readonly string ClearCacheInstanceStillUsingResource = "ClearCacheInstanceStillUsingResource";
 	public static readonly string Warning = "Warning";
 	public static readonly string PlatformNotSupportedOperation = "PlatformNotSupportedOperation";
 	public static readonly string StopTaskBeforeExportLog = "StopTaskBeforeExportLog";
@@ -433,6 +456,7 @@ public static class LangKeys
 	public static readonly string ScreenshotFailed = "ScreenshotFailed";
 	public static readonly string DisplayAnnouncement = "DisplayAnnouncement";
 	public static readonly string ScreenshotEmpty = "ScreenshotEmpty";
+	public static readonly string ScreenshotPlaceholder = "ScreenshotPlaceholder";
 	public static readonly string SaveScreenshot = "SaveScreenshot";
 	public static readonly string AnnouncementEmpty = "AnnouncementEmpty";
 	public static readonly string Execute = "Execute";
@@ -478,6 +502,7 @@ public static class LangKeys
 	public static readonly string BackgroundImageOpacityTitle = "BackgroundImageOpacityTitle";
 	public static readonly string BackgroundImageOpacityDescription = "BackgroundImageOpacityDescription";
 	public static readonly string TriggerDate = "TriggerDate";
+	public static readonly string ConnectingInProgress = "ConnectingInProgress";
 	public static readonly string SchedulePickerTip = "SchedulePickerTip";
 	public static readonly string ScheduleMode = "ScheduleMode";
 	public static readonly string ScheduleDaily = "ScheduleDaily";
@@ -504,9 +529,13 @@ public static class LangKeys
 	public static readonly string ResourceNotSupportController = "ResourceNotSupportController";
 	public static readonly string ResourceNotSelected = "ResourceNotSelected";
 	public static readonly string DeviceNotSelected = "DeviceNotSelected";
+	public static readonly string Preset = "Preset";
 	public static readonly string ResourcePresetConfig = "ResourcePresetConfig";
 	public static readonly string UseFingerprintMatching = "UseFingerprintMatching";
 	public static readonly string LiveView = "LiveView";
+	public static readonly string LiveViewNoImageReasonAdb = "LiveViewNoImageReasonAdb";
+	public static readonly string LiveViewNoImageReasonWindow = "LiveViewNoImageReasonWindow";
+	public static readonly string LiveViewNoImageWarning = "LiveViewNoImageWarning";
 	public static readonly string Running = "Running";
 	public static readonly string CurrentTask = "CurrentTask";
 	public static readonly string LiveViewRefreshRate = "LiveViewRefreshRate";
@@ -604,7 +633,11 @@ public static class LangKeys
 	public static readonly string SpecialTask_ProgramPath = "SpecialTask_ProgramPath";
 	public static readonly string SpecialTask_Arguments = "SpecialTask_Arguments";
 	public static readonly string SpecialTask_WaitForExit = "SpecialTask_WaitForExit";
+	public static readonly string SpecialTask_KillSelfProcess = "SpecialTask_KillSelfProcess";
+	public static readonly string SpecialTask_KillSelfProcessDesc = "SpecialTask_KillSelfProcessDesc";
+	public static readonly string SpecialTask_ProcessSettings = "SpecialTask_ProcessSettings";
 	public static readonly string SpecialTask_ProcessName = "SpecialTask_ProcessName";
+	public static readonly string SpecialTask_ProcessNamePlaceholder = "SpecialTask_ProcessNamePlaceholder";
 	public static readonly string SpecialTask_OperationType = "SpecialTask_OperationType";
 	public static readonly string SpecialTask_RequestMethod = "SpecialTask_RequestMethod";
 	public static readonly string SpecialTask_RequestBody = "SpecialTask_RequestBody";
@@ -616,8 +649,30 @@ public static class LangKeys
 	public static readonly string SpecialTask_Hibernate = "SpecialTask_Hibernate";
 	public static readonly string InstanceSelectTooltip = "InstanceSelectTooltip";
 	public static readonly string InstanceAddTooltip = "InstanceAddTooltip";
+	public static readonly string InstanceAddFollowLast = "InstanceAddFollowLast";
+	public static readonly string InstancePresetTaskCountFormat = "InstancePresetTaskCountFormat";
 	public static readonly string InstanceCannotCloseLast = "InstanceCannotCloseLast";
 	public static readonly string InstanceRunningCloseConfirm = "InstanceRunningCloseConfirm";
 	public static readonly string InstanceCloseTitle = "InstanceCloseTitle";
+	public static readonly string InstanceRunningCannotClose = "InstanceRunningCannotClose";
+	public static readonly string InstanceTimerReassigned = "InstanceTimerReassigned";
+	public static readonly string MonitorSortDefault = "MonitorSortDefault";
+	public static readonly string MonitorSortByStatus = "MonitorSortByStatus";
+	public static readonly string MonitorSortByName = "MonitorSortByName";
+	public static readonly string MonitorSortByCreatedTime = "MonitorSortByCreatedTime";
+	public static readonly string MonitorForceRefresh = "MonitorForceRefresh";
+	public static readonly string MonitorFullScreen = "MonitorFullScreen";
+	public static readonly string MonitorCopyScreenshot = "MonitorCopyScreenshot";
+	public static readonly string MonitorDisconnect = "MonitorDisconnect";
+	public static readonly string MonitorTryConnect = "MonitorTryConnect";
+	public static readonly string MonitorLiveBadge = "MonitorLiveBadge";
+	public static readonly string ZoomOut = "ZoomOut";
+	public static readonly string ZoomIn = "ZoomIn";
+	public static readonly string AddTimer = "AddTimer";
+	public static readonly string RemoveTimer = "RemoveTimer";
+	public static readonly string TimerStopConnectedProcess = "TimerStopConnectedProcess";
+	public static readonly string TimerStopMFA = "TimerStopMFA";
 	
 }
+
+

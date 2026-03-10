@@ -12,6 +12,7 @@ public sealed class InstanceConfiguration
 {
     private readonly string _instanceId;
     private Dictionary<string, object> _config;
+    private volatile bool _isDeleted;
 
     internal static readonly string InstancesDir = Path.Combine(
         AppContext.BaseDirectory, "config", "instances");
@@ -27,6 +28,12 @@ public sealed class InstanceConfiguration
     /// </summary>
     public string GetConfigFilePath() =>
         Path.Combine(InstancesDir, $"{_instanceId}.json");
+
+    public bool ConfigFileExists()
+        => File.Exists(GetConfigFilePath());
+
+    public bool HasLocalConfigData()
+        => _config.Count > 0;
 
     /// <summary>
     /// 加载实例独立配置文件
@@ -48,6 +55,8 @@ public sealed class InstanceConfiguration
     /// </summary>
     private void SaveInstanceConfig()
     {
+        if (_isDeleted) return;
+
         if (!Directory.Exists(InstancesDir))
             Directory.CreateDirectory(InstancesDir);
 
@@ -60,12 +69,31 @@ public sealed class InstanceConfiguration
 
     private MFAConfiguration GlobalConfig => ConfigurationManager.Current;
 
+    private bool ShouldPersistFallbackValue()
+    {
+        if (_isDeleted)
+            return false;
+
+        if (_instanceId != "default")
+            return true;
+
+        return File.Exists(GetConfigFilePath());
+    }
+
+    private void PersistFallbackValue(string key, object? value)
+    {
+        if (!ShouldPersistFallbackValue())
+            return;
+
+        SetValue(key, value);
+    }
+
     public bool ContainsKey(string key)
         => _config.ContainsKey(key) || GlobalConfig.ContainsKey(key);
 
     public void SetValue(string key, object? value)
     {
-        if (value == null) return;
+        if (value == null || _isDeleted) return;
         _config[key] = value;
         SaveInstanceConfig();
     }
@@ -84,8 +112,8 @@ public sealed class InstanceConfiguration
         if (GlobalConfig.ContainsKey(scopedKey))
         {
             var value = GlobalConfig.GetValue<T>(scopedKey, defaultValue);
-            // 迁移到实例文件
-            SetValue(key, value);
+            // 迁移到实例文件；临时 default 实例不落盘，避免重建 default.json
+            PersistFallbackValue(key, value);
             return value;
         }
 
@@ -96,7 +124,7 @@ public sealed class InstanceConfiguration
             if (GlobalConfig.ContainsKey(defaultScopedKey))
             {
                 var value = GlobalConfig.GetValue<T>(defaultScopedKey, defaultValue);
-                SetValue(key, value);
+                PersistFallbackValue(key, value);
                 return value;
             }
         }
@@ -105,7 +133,7 @@ public sealed class InstanceConfiguration
         if (GlobalConfig.ContainsKey(key))
         {
             var value = GlobalConfig.GetValue<T>(key, defaultValue);
-            SetValue(key, value);
+            PersistFallbackValue(key, value);
             return value;
         }
 
@@ -133,7 +161,7 @@ public sealed class InstanceConfiguration
         if (GlobalConfig.ContainsKey(scopedKey))
         {
             var value = GlobalConfig.GetValue<T>(scopedKey, defaultValue, options);
-            SetValue(key, value);
+            PersistFallbackValue(key, value);
             return value;
         }
 
@@ -143,7 +171,7 @@ public sealed class InstanceConfiguration
             if (GlobalConfig.ContainsKey(defaultScopedKey))
             {
                 var value = GlobalConfig.GetValue<T>(defaultScopedKey, defaultValue, options);
-                SetValue(key, value);
+                PersistFallbackValue(key, value);
                 return value;
             }
         }
@@ -151,7 +179,7 @@ public sealed class InstanceConfiguration
         if (GlobalConfig.ContainsKey(key))
         {
             var value = GlobalConfig.GetValue<T>(key, defaultValue, options);
-            SetValue(key, value);
+            PersistFallbackValue(key, value);
             return value;
         }
 
@@ -182,7 +210,7 @@ public sealed class InstanceConfiguration
         if (GlobalConfig.ContainsKey(scopedKey))
         {
             var value = GlobalConfig.GetValue<T>(scopedKey, defaultValue, noValue, valueConverters);
-            SetValue(key, value);
+            PersistFallbackValue(key, value);
             return value;
         }
 
@@ -192,7 +220,7 @@ public sealed class InstanceConfiguration
             if (GlobalConfig.ContainsKey(defaultScopedKey))
             {
                 var value = GlobalConfig.GetValue<T>(defaultScopedKey, defaultValue, noValue, valueConverters);
-                SetValue(key, value);
+                PersistFallbackValue(key, value);
                 return value;
             }
         }
@@ -200,7 +228,7 @@ public sealed class InstanceConfiguration
         if (GlobalConfig.ContainsKey(key))
         {
             var value = GlobalConfig.GetValue<T>(key, defaultValue, noValue, valueConverters);
-            SetValue(key, value);
+            PersistFallbackValue(key, value);
             return value;
         }
 
@@ -231,7 +259,7 @@ public sealed class InstanceConfiguration
         if (GlobalConfig.ContainsKey(scopedKey))
         {
             var value = GlobalConfig.GetValue<T>(scopedKey, defaultValue, noValue, valueConverters);
-            SetValue(key, value);
+            PersistFallbackValue(key, value);
             return value;
         }
 
@@ -241,7 +269,7 @@ public sealed class InstanceConfiguration
             if (GlobalConfig.ContainsKey(defaultScopedKey))
             {
                 var value = GlobalConfig.GetValue<T>(defaultScopedKey, defaultValue, noValue, valueConverters);
-                SetValue(key, value);
+                PersistFallbackValue(key, value);
                 return value;
             }
         }
@@ -249,7 +277,7 @@ public sealed class InstanceConfiguration
         if (GlobalConfig.ContainsKey(key))
         {
             var value = GlobalConfig.GetValue<T>(key, defaultValue, noValue, valueConverters);
-            SetValue(key, value);
+            PersistFallbackValue(key, value);
             return value;
         }
 
@@ -278,7 +306,7 @@ public sealed class InstanceConfiguration
         var scopedKey = $"Instance.{_instanceId}.{key}";
         if (GlobalConfig.TryGetValue(scopedKey, out output, valueConverters))
         {
-            SetValue(key, output);
+            PersistFallbackValue(key, output);
             return true;
         }
 
@@ -287,14 +315,14 @@ public sealed class InstanceConfiguration
             var defaultScopedKey = $"Instance.default.{key}";
             if (GlobalConfig.TryGetValue(defaultScopedKey, out output, valueConverters))
             {
-                SetValue(key, output);
+                PersistFallbackValue(key, output);
                 return true;
             }
         }
 
         if (GlobalConfig.TryGetValue(key, out output, valueConverters))
         {
-            SetValue(key, output);
+            PersistFallbackValue(key, output);
             return true;
         }
 
@@ -313,12 +341,21 @@ public sealed class InstanceConfiguration
         try
         {
             var data = JsonHelper.LoadJson(filePath, new Dictionary<string, object>());
-            if (data.TryGetValue(key, out var value) && value is string str)
-                return str;
+            if (data.TryGetValue(key, out var value))
+            {
+                if (value is string str)
+                    return str;
+
+                if (value is JValue jValue)
+                    return jValue.ToString();
+
+                if (value != null)
+                    return Convert.ToString(value) ?? defaultValue;
+            }
         }
-        catch
+        catch (Exception ex)
         {
-            // ignore
+            LoggerHelper.Error($"[实例加载] 读取实例名称失败: {filePath}", ex);
         }
 
         return defaultValue;
@@ -330,6 +367,25 @@ public sealed class InstanceConfiguration
     public void ReloadFromDisk()
     {
         _config = LoadInstanceConfig();
+    }
+
+    /// <summary>
+    /// 将当前实例的配置复制到新实例的配置文件（排除实例名称），
+    /// 需在新实例创建前调用，确保构造函数能读到完整配置
+    /// </summary>
+    public void CopyToNewInstance(string targetInstanceId)
+    {
+        if (!Directory.Exists(InstancesDir))
+            Directory.CreateDirectory(InstancesDir);
+
+        var data = new Dictionary<string, object>(_config);
+        data.Remove(ConfigurationKeys.InstanceName);
+
+        JsonHelper.SaveJson(
+            Path.Combine(InstancesDir, $"{targetInstanceId}.json"),
+            data,
+            new MaaInterfaceSelectAdvancedConverter(false),
+            new MaaInterfaceSelectOptionConverter(false));
     }
 
     /// <summary>
@@ -349,6 +405,7 @@ public sealed class InstanceConfiguration
     /// </summary>
     public void DeleteConfigFile()
     {
+        _isDeleted = true;
         var filePath = GetConfigFilePath();
         if (File.Exists(filePath))
             File.Delete(filePath);

@@ -153,6 +153,9 @@
     <data name="CheckMFA" xml:space="preserve">
         <value>Check Software</value>
     </data>
+    <data name="CheckUpdate" xml:space="preserve">
+        <value>Check updates</value>
+    </data>
     <data name="CheckResource" xml:space="preserve">
         <value>Check resources</value>
     </data>
@@ -160,16 +163,25 @@
         <value>The data currently in the clipboard cannot be converted to text.</value>
     </data>
     <data name="CloseEmulator" xml:space="preserve">
-        <value>Disable Game</value>
+        <value>Close Emulator</value>
     </data>
     <data name="CloseEmulatorAndMFA" xml:space="preserve">
-        <value>Disable MFA and Game</value>
+        <value>Close Emulator and This App</value>
     </data>
     <data name="CloseEmulatorAndRestartMFA" xml:space="preserve">
-        <value>Restart MFA and Disable Game</value>
+        <value>Restart This App and Close Emulator</value>
     </data>
     <data name="CloseMFA" xml:space="preserve">
-        <value>Disable MFA</value>
+        <value>Close This App</value>
+    </data>
+    <data name="CloseTargetProgram" xml:space="preserve">
+        <value>Close Target Program</value>
+    </data>
+    <data name="CloseTargetProgramAndMFA" xml:space="preserve">
+        <value>Close Target Program and This App</value>
+    </data>
+    <data name="CloseTargetProgramAndRestartMFA" xml:space="preserve">
+        <value>Restart This App and Close Target Program</value>
     </data>
     <data name="ColorPickerTitle" xml:space="preserve">
         <value>Color Picker</value>
@@ -213,8 +225,11 @@
     <data name="ConnectingEmulatorOrWindow" xml:space="preserve">
         <value>Error connecting to {0}!</value>
     </data>
-    <data name="ConnectingTo" xml:space="preserve">
+  <data name="ConnectingTo" xml:space="preserve">
         <value>Connecting to {0}......</value>
+    </data>
+    <data name="ConnectingInProgress" xml:space="preserve">
+        <value>Connecting, please wait...</value>
     </data>
     <data name="Connection" xml:space="preserve">
         <value>Connection</value>
@@ -511,7 +526,7 @@
         <value>Force scheduled start</value>
     </data>
     <data name="ForceScheduledStartTip" xml:space="preserve">
-        <value>Stop current task, restart game and start new tasks</value>
+        <value>Stop current task, then start new tasks after stopping completes</value>
     </data>
     <data name="GameResourceUpdated" xml:space="preserve">
         <value>Game resources updated, please restart software.</value>
@@ -564,8 +579,20 @@
     <data name="HotKeyOccupiedWarning" xml:space="preserve">
         <value>⚠️ This hotkey is in use</value>
     </data>
+    <data name="HotKeyOccupiedBy" xml:space="preserve">
+        <value>⚠️ This hotkey is already used by {0}</value>
+    </data>
     <data name="HotKeyPressing" xml:space="preserve">
-        <value>Press any combination...</value>
+        <value>Press any key...</value>
+    </data>
+    <data name="UnknownItem" xml:space="preserve">
+        <value>Unknown item</value>
+    </data>
+    <data name="GlobalConfigFileAccessError" xml:space="preserve">
+        <value>Global config file is unavailable: {0}\nOccupied/Error detail: {1}</value>
+    </data>
+    <data name="GlobalConfigFileReasonUnknown" xml:space="preserve">
+        <value>Unknown reason</value>
     </data>
     <data name="HotKeySettings" xml:space="preserve">
         <value>HotKeys</value>
@@ -699,6 +726,9 @@
     <data name="NoEmulatorFound" xml:space="preserve">
         <value>No emulator found! </value>
     </data>
+    <data name="NoEmulatorFoundPlaceholder" xml:space="preserve">
+        <value>No emulator found</value>
+    </data>
     <data name="None" xml:space="preserve">
         <value>None</value>
     </data>
@@ -707,6 +737,9 @@
     </data>
     <data name="NoWindowFound" xml:space="preserve">
         <value>No window found!</value>
+    </data>
+    <data name="NoWindowFoundPlaceholder" xml:space="preserve">
+        <value>No window found</value>
     </data>
     <data name="Nox" xml:space="preserve">
         <value>Nox</value>
@@ -720,6 +753,12 @@
     <data name="OperateController" xml:space="preserve">
         <value>Select the Controller to Operate</value>
     </data>
+    <data name="PleaseSelectEmulator" xml:space="preserve">
+        <value>Please select an emulator</value>
+    </data>
+    <data name="PleaseSelectWindow" xml:space="preserve">
+        <value>Please select a window</value>
+    </data>
     <data name="Paste" xml:space="preserve">
         <value>Paste</value>
     </data>
@@ -731,6 +770,9 @@
     </data>
     <data name="PerformanceSettings" xml:space="preserve">
         <value>Performance</value>
+    </data>
+    <data name="PerformanceBenchmark" xml:space="preserve">
+        <value>Performance benchmark</value>
     </data>
     <data name="PipelineLoadError" xml:space="preserve">
         <value>Error occurred while loading Pipeline file: {0}</value>
@@ -785,6 +827,12 @@
     </data>
     <data name="ResourceName" xml:space="preserve">
         <value>Resource Name</value>
+    </data>
+    <data name="GlobalOption" xml:space="preserve">
+        <value>Global Task Config</value>
+    </data>
+    <data name="ControllerPresetConfig" xml:space="preserve">
+        <value>Controller Preset Config</value>
     </data>
     <data name="ResourceOption" xml:space="preserve">
         <value>Resources Type</value>
@@ -878,6 +926,9 @@
     </data>
     <data name="ShutDown" xml:space="preserve">
         <value>Shut Down</value>
+    </data>
+    <data name="ShutDownOnce" xml:space="preserve">
+        <value>Shut Down (Once)</value>
     </data>
     <data name="SliderControlTitle" xml:space="preserve">
         <value>Slider Control</value>
@@ -990,11 +1041,14 @@
     <data name="Timer" xml:space="preserve">
         <value>Timer</value>
     </data>
+    <data name="TimerAction" xml:space="preserve">
+        <value>Action Type</value>
+    </data>
     <data name="TimerCustomConfig" xml:space="preserve">
         <value>Custom config</value>
     </data>
     <data name="TimerCustomConfigTip" xml:space="preserve">
-        <value>Restart and switch configuration two minutes in advance</value>
+        <value>When enabled, each scheduled task runs with its selected config instead of the currently active one</value>
     </data>
     <data name="Tip" xml:space="preserve">
         <value>Tip</value>
@@ -1104,6 +1158,15 @@
     <data name="ConfigurePrimaryAccent" xml:space="preserve">
         <value>Configure Primary and Accent Colors and Apply to Application</value>
     </data>
+    <data name="CustomThemeName" xml:space="preserve">
+        <value>Theme Name</value>
+    </data>
+    <data name="CustomThemePrimaryColor" xml:space="preserve">
+        <value>Primary Color</value>
+    </data>
+    <data name="CustomThemeAccentColor" xml:space="preserve">
+        <value>Accent Color</value>
+    </data>
     <data name="ColorThemeAlreadyExists" xml:space="preserve">
         <value>The color theme already exists</value>
     </data>
@@ -1203,6 +1266,18 @@
     <data name="ExportLog" xml:space="preserve">
         <value>Export Log</value>
     </data>
+    <data name="ExportLogInProgress" xml:space="preserve">
+        <value>Exporting logs, please wait...</value>
+    </data>
+    <data name="ExportLogNoEligibleFiles" xml:space="preserve">
+        <value>No eligible log files or images were found.</value>
+    </data>
+    <data name="ExportLogSuccess" xml:space="preserve">
+        <value>Log export completed successfully</value>
+    </data>
+    <data name="ExportLogFailed" xml:space="preserve">
+        <value>Failed to export logs</value>
+    </data>
     <data name="ClearCache" xml:space="preserve">
         <value>Clear Cache</value>
     </data>
@@ -1211,6 +1286,12 @@
     </data>
     <data name="ClearCacheFailed" xml:space="preserve">
         <value>Failed to clear cache</value>
+    </data>
+    <data name="ClearCacheStopInstanceFailed" xml:space="preserve">
+        <value>Failed to stop instance {0}</value>
+    </data>
+    <data name="ClearCacheInstanceStillUsingResource" xml:space="preserve">
+        <value>Instance {0} is still using resources</value>
     </data>
     <data name="Warning" xml:space="preserve">
         <value>Warning</value>
@@ -1253,6 +1334,9 @@
     </data>
     <data name="ScreenshotEmpty" xml:space="preserve">
         <value>The current screenshot is empty! Please click [Screenshot Test] to get a screenshot</value>
+    </data>
+    <data name="ScreenshotPlaceholder" xml:space="preserve">
+        <value>No screenshot</value>
     </data>
     <data name="SaveScreenshot" xml:space="preserve">
         <value>Save Screenshot</value>
@@ -1474,14 +1558,27 @@
     </data>
 
 
+    <data name="Preset" xml:space="preserve">
+        <value>Preset</value>
+    </data>
+
     <data name="ResourcePresetConfig" xml:space="preserve">
         <value>Resource Preset Config</value>
     </data>
     <data name="UseFingerprintMatching" xml:space="preserve">
         <value>Use Fingerprint Matching</value>
     </data>
-    <data name="LiveView" xml:space="preserve">
+<data name="LiveView" xml:space="preserve">
         <value>Live View</value>
+    </data>
+    <data name="LiveViewNoImageReasonAdb" xml:space="preserve">
+        <value>Possible causes: emulator window minimized/screen off, incompatible screencap mode, or device not fully started</value>
+    </data>
+    <data name="LiveViewNoImageReasonWindow" xml:space="preserve">
+        <value>Possible causes: target window minimized/hidden/occluded, incompatible screencap mode</value>
+    </data>
+    <data name="LiveViewNoImageWarning" xml:space="preserve">
+        <value>Live view is connected but no frame is available ({0}), {1}</value>
     </data>
     <data name="Running" xml:space="preserve">
         <value>Running</value>
@@ -1498,8 +1595,11 @@
     <data name="PlayCoverBundleIdentifier" xml:space="preserve">
         <value>Bundle Identifier</value>
     </data>
-    <data name="PlayCoverAddressEmpty" xml:space="preserve">
+<data name="PlayCoverAddressEmpty" xml:space="preserve">
         <value>PlayCover address cannot be empty</value>
+    </data>
+    <data name="PlayCoverEditor" xml:space="preserve">
+        <value>PlayCover Editor</value>
     </data>
     <data name="Reconnect" xml:space="preserve">
         <value>Reconnect</value>
@@ -1520,7 +1620,7 @@
         <value>Rename</value>
     </data>
     <data name="TaskRenamePlaceholder" xml:space="preserve">
-        <value>Enter a custom display name (optional)</value>
+        <value>Enter configuration name</value>
     </data>
     <data name="TaskRemark" xml:space="preserve">
         <value>Remark</value>
@@ -1819,6 +1919,15 @@
     <data name="SpecialTask_WaitForExit" xml:space="preserve">
         <value>Wait for Exit</value>
     </data>
+    <data name="SpecialTask_KillSelfProcess" xml:space="preserve">
+        <value>Kill Self Process</value>
+    </data>
+    <data name="SpecialTask_KillSelfProcessDesc" xml:space="preserve">
+        <value>When enabled, terminates this application itself; when disabled, you can enter another process name to terminate.</value>
+    </data>
+    <data name="SpecialTask_ProcessSettings" xml:space="preserve">
+        <value>Process Settings</value>
+    </data>
     <data name="SpecialTask_ProcessName" xml:space="preserve">
         <value>Process Name</value>
     </data>
@@ -1834,8 +1943,11 @@
     <data name="SpecialTask_SelectProgram" xml:space="preserve">
         <value>Select Program</value>
     </data>
+    <data name="SpecialTask_ProcessNamePlaceholder" xml:space="preserve">
+        <value>e.g. notepad.exe</value>
+    </data>
     <data name="SpecialTask_ProcessNameExample" xml:space="preserve">
-        <value>e.g.: notepad</value>
+        <value>e.g. notepad.exe</value>
     </data>
     <data name="SpecialTask_Shutdown" xml:space="preserve">
         <value>Shutdown</value>
@@ -1855,6 +1967,12 @@
     <data name="InstanceAddTooltip" xml:space="preserve">
         <value>Add Instance</value>
     </data>
+    <data name="InstanceAddFollowLast" xml:space="preserve">
+        <value>Follow Rightmost Config</value>
+    </data>
+    <data name="InstancePresetTaskCountFormat" xml:space="preserve">
+        <value>{0}/{1} tasks</value>
+    </data>
     <data name="InstanceCannotCloseLast" xml:space="preserve">
         <value>Cannot close the last instance</value>
     </data>
@@ -1864,5 +1982,87 @@
     <data name="InstanceCloseTitle" xml:space="preserve">
         <value>Close Instance</value>
     </data>
-    </root>
+    <data name="InstanceRunningCannotClose" xml:space="preserve">
+        <value>This instance is running. Please stop the task before closing.</value>
+    </data>
+    <data name="InstanceTimerReassigned" xml:space="preserve">
+        <value>Instance "{0}" has been closed. Its scheduled tasks have been reassigned to another instance.</value>
+    </data>
+    <data name="MonitorSortDefault" xml:space="preserve">
+        <value>Default</value>
+    </data>
+    <data name="MonitorSortByStatus" xml:space="preserve">
+        <value>By Status</value>
+    </data>
+    <data name="MonitorSortByName" xml:space="preserve">
+        <value>By Name</value>
+    </data>
+    <data name="MonitorSortByCreatedTime" xml:space="preserve">
+        <value>By Created Time</value>
+    </data>
+    <data name="MonitorForceRefresh" xml:space="preserve">
+        <value>Force refresh</value>
+    </data>
+    <data name="MonitorFullScreen" xml:space="preserve">
+        <value>Full screen</value>
+    </data>
+    <data name="MonitorCopyScreenshot" xml:space="preserve">
+        <value>Copy screenshot</value>
+    </data>
+    <data name="MonitorDisconnect" xml:space="preserve">
+        <value>Disconnect</value>
+    </data>
+    <data name="MonitorTryConnect" xml:space="preserve">
+        <value>Try connect</value>
+    </data>
+    <data name="MonitorLiveBadge" xml:space="preserve">
+        <value>LIVE</value>
+    </data>
+    <data name="ZoomOut" xml:space="preserve">
+        <value>Zoom out</value>
+    </data>
+    <data name="ZoomIn" xml:space="preserve">
+        <value>Zoom in</value>
+    </data>
+    <data name="TimerStopConnectedProcess" xml:space="preserve">
+        <value>Close connected process</value>
+    </data>
+    <data name="TimerStopMFA" xml:space="preserve">
+        <value>Close This App</value>
+    </data>
+    <data name="AddTimer" xml:space="preserve">
+        <value>Add Timer</value>
+    </data>
+    <data name="RemoveTimer" xml:space="preserve">
+        <value>Remove Timer</value>
+    </data>
+  <data name="InstanceDropdownSearch" xml:space="preserve">
+    <value>Search configs</value>
+  </data>
+  <data name="InstanceDropdownOpenConfigs" xml:space="preserve">
+    <value>Open configs</value>
+  </data>
+  <data name="InstanceDropdownRecentClosed" xml:space="preserve">
+    <value>Recently closed</value>
+  </data>
+  <data name="InstanceDropdownNoOpenConfigs" xml:space="preserve">
+    <value>No open configs</value>
+  </data>
+  <data name="InstanceDropdownNoRecentClosed" xml:space="preserve">
+    <value>暂无Recently closed记录</value>
+  </data>
+  <data name="InstanceDropdownCloseConfig" xml:space="preserve">
+    <value>Close config</value>
+  </data>
+  <data name="InstanceDropdownJustNow" xml:space="preserve">
+    <value>Just now</value>
+  </data>
+</root>
+
+
+
+
+
+
+
 

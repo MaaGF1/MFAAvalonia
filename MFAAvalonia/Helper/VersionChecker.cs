@@ -8,6 +8,7 @@ using MFAAvalonia.Configuration;
 using MFAAvalonia.Extensions;
 using MFAAvalonia.Extensions.MaaFW;
 using MFAAvalonia.Helper.Converters;
+using MFAAvalonia.Helper.ValueType;
 using MFAAvalonia.ViewModels.UsersControls.Settings;
 using MFAAvalonia.ViewModels.Windows;
 using MFAAvalonia.Views.Windows;
@@ -447,7 +448,18 @@ public static class VersionChecker
             return;
         }
         MaaProcessorManager.Instance.Current.SetTasker();
-        DispatcherHelper.PostOnMainThread(() => Instances.RootView.BeforeClosed(true, true));
+        // 仅停止正在运行的任务，不 Dispose 处理器（避免界面变白/配置列表清空）
+        // BeforeClosed 将在重启前调用
+        DispatcherHelper.PostOnMainThread(() =>
+        {
+            if (Instances.RootViewModel.IsRunning)
+            {
+                foreach (var processor in MaaProcessor.Processors)
+                {
+                    processor.Stop(MFATask.MFATaskStatus.STOPPED);
+                }
+            }
+        });
         var tempPath = Path.Combine(AppContext.BaseDirectory, "temp_res");
         Directory.CreateDirectory(tempPath);
         string fileExtension = GetFileExtensionFromUrl(downloadUrl);
@@ -665,8 +677,30 @@ public static class VersionChecker
         // 通过程序集名称检测解压目录中是否包含新版本的 MFAAvalonia 可执行文件
         var newMFAExe = FindMFAExecutableByAssemblyName(tempExtractDir);
         var containsMFAExecutable = !string.IsNullOrEmpty(newMFAExe);
+        string newMFAExeTargetPath = string.Empty;
         if (containsMFAExecutable)
+        {
+            newMFAExeTargetPath = Path.Combine(wpfDir, Path.GetFileName(newMFAExe));
             LoggerHelper.Info($"资源包中检测到 MFAAvalonia 可执行文件: {newMFAExe}");
+        }
+
+        if (containsMFAExecutable
+            && !string.IsNullOrWhiteSpace(exeName)
+            && File.Exists(exeName)
+            && Path.GetDirectoryName(exeName)?.Equals(wpfDir, StringComparison.OrdinalIgnoreCase) == true
+            && !string.IsNullOrWhiteSpace(newMFAExeTargetPath)
+            && !Path.GetFullPath(exeName).Equals(Path.GetFullPath(newMFAExeTargetPath), StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                LoggerHelper.Info($"检测到主程序文件名变更，备份当前可执行文件: {exeName} -> {newMFAExeTargetPath}");
+                DeleteFileWithBackup(exeName);
+            }
+            catch (Exception ex)
+            {
+                LoggerHelper.Warning($"备份当前可执行文件失败: {exeName}, error: {ex.Message}");
+            }
+        }
 
         // 统一使用 CopyAndDelete 覆盖文件（旧文件被锁定时会自动备份为 .backupMFA）
         var di = new DirectoryInfo(originPath);
@@ -721,6 +755,8 @@ public static class VersionChecker
             }
         }
 
+        // 重启前执行清理（保存配置、释放资源等）
+        DispatcherHelper.PostOnMainThread(() => Instances.RootView.BeforeClosed(true, true));
         await RestartApplicationAsync(exeName);
     }
 */

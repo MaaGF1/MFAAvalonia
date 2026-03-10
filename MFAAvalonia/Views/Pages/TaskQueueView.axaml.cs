@@ -1,5 +1,6 @@
 ﻿using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Data;
 using Avalonia.Data.Converters;
@@ -28,12 +29,15 @@ using FontWeight = Avalonia.Media.FontWeight;
 using HorizontalAlignment = Avalonia.Layout.HorizontalAlignment;
 using VerticalAlignment = Avalonia.Layout.VerticalAlignment;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Avalonia.Xaml.Interactivity;
 using Lang.Avalonia.MarkupExtensions;
 using MaaFramework.Binding;
 using MFAAvalonia.Views.Windows;
+using MFAAvalonia.Views.UserControls.Settings;
 using Newtonsoft.Json.Linq;
 using SukiUI.Dialogs;
+using SukiUI.Controls;
 using SukiUI.Extensions;
 using System.Threading.Tasks;
 
@@ -43,6 +47,7 @@ public partial class TaskQueueView : UserControl
 {
     // 动画持续时间
     private static readonly TimeSpan AnimationDuration = TimeSpan.FromMilliseconds(250);
+    private DragItemViewModel? _lastTaskMenuItem;
 
     private const double TopToolbarCompactWidthThreshold = 980;
     private bool _isTopToolbarCompact;
@@ -54,6 +59,34 @@ public partial class TaskQueueView : UserControl
         Loaded += OnLoaded;
         Unloaded += OnUnloaded;
         DataContextChanged += OnDataContextChanged;
+    }
+
+    private void ConnectionStatusButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        NavigateToConnectSettings();
+    }
+
+    private void NavigateToConnectSettings()
+    {
+        var topLevel = Instances.TopLevel;
+        if (topLevel == null)
+        {
+            return;
+        }
+
+        var sideMenu = topLevel.GetVisualDescendants().OfType<SukiSideMenu>().FirstOrDefault();
+        var settingsItem = sideMenu?.FooterMenuItems?.OfType<SukiSideMenuItem>().FirstOrDefault();
+        if (settingsItem != null && sideMenu != null)
+        {
+            sideMenu.SelectedItem = settingsItem;
+        }
+
+        Dispatcher.UIThread.Post(() =>
+        {
+            var connectSettings = topLevel.GetVisualDescendants().OfType<ConnectSettingsUserControl>().FirstOrDefault();
+            connectSettings?.BringIntoView();
+            connectSettings?.Focus();
+        }, DispatcherPriority.Loaded);
     }
 
     private void OnDataContextChanged(object? sender, EventArgs e)
@@ -257,6 +290,24 @@ public partial class TaskQueueView : UserControl
         ToastHelper.Info(LangKeys.Tip.ToLocalization(), LangKeys.TaskAddedToast.ToLocalizationFormatted(false, output.Name));
     }
 
+    private void CopyTask(object? sender, RoutedEventArgs e)
+    {
+        var menuItem = sender as MenuItem;
+        if (menuItem?.DataContext is DragItemViewModel taskItemViewModel)
+        {
+            CopyTaskToClipboard(taskItemViewModel);
+        }
+    }
+
+    private void PasteTask(object? sender, RoutedEventArgs e)
+    {
+        var menuItem = sender as MenuItem;
+        if (menuItem?.DataContext is DragItemViewModel taskItemViewModel)
+        {
+            _ = PasteTaskFromClipboardAsync(TaskListBox, taskItemViewModel);
+        }
+    }
+
     private void Delete(object? sender, RoutedEventArgs e)
     {
         var menuItem = sender as MenuItem;
@@ -349,6 +400,8 @@ public partial class TaskQueueView : UserControl
         var menuItem = sender as MenuItem;
         if (menuItem?.DataContext is DragItemViewModel taskItemViewModel && DataContext is TaskQueueViewModel vm)
         {
+            if (taskItemViewModel.IsResourceOptionItem)
+                return;
             vm.Processor.Start([taskItemViewModel]);
         }
     }
@@ -359,6 +412,8 @@ public partial class TaskQueueView : UserControl
         // 空值保护 + 类型校验
         if (menuItem?.DataContext is DragItemViewModel currentTaskViewModel && DataContext is TaskQueueViewModel vm)
         {
+            if (currentTaskViewModel.IsResourceOptionItem)
+                return;
             // 避免任务列表为 null 的异常
             if (vm.TaskItemViewModels.Count == 0)
                 return;
@@ -381,6 +436,83 @@ public partial class TaskQueueView : UserControl
                 vm.Processor.Start(tasksToRun);
             }
         }
+    }
+
+    private void TaskMenu_OnOpening(object? sender, CancelEventArgs e)
+    {
+        if (sender is not ContextMenu menu)
+            return;
+
+        // ContextMenu 作为 StaticResource 会复用，DataContext 可能滞后。
+        // 从 PlacementTarget 向上找真实的 DragItemViewModel。
+        var currentItem = _lastTaskMenuItem
+                          ?? ResolveTaskItemFromPlacementTarget(menu.PlacementTarget)
+                          ?? menu.DataContext as DragItemViewModel;
+        menu.DataContext = currentItem;
+        ApplyTaskMenuEnabledStates(menu, currentItem);
+    }
+
+    private static DragItemViewModel? ResolveTaskItemFromPlacementTarget(Control? placementTarget)
+    {
+        if (placementTarget?.DataContext is DragItemViewModel vm)
+            return vm;
+
+        var current = placementTarget as Visual;
+        while (current != null)
+        {
+            if (current is StyledElement { DataContext: DragItemViewModel itemVm })
+                return itemVm;
+
+            current = current.GetVisualParent();
+        }
+
+        return null;
+    }
+
+    private void TaskItem_OnContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        if (sender is not Control control)
+            return;
+
+        if (control.ContextMenu is not ContextMenu menu)
+            return;
+
+        var currentItem = control.DataContext as DragItemViewModel;
+        _lastTaskMenuItem = currentItem;
+        menu.DataContext = currentItem;
+        ApplyTaskMenuEnabledStates(menu, currentItem);
+    }
+
+    private void TaskItem_OnPointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (sender is not Control control)
+            return;
+
+        var point = e.GetCurrentPoint(control);
+        if (!point.Properties.IsRightButtonPressed)
+            return;
+
+        _lastTaskMenuItem = control.DataContext as DragItemViewModel;
+    }
+
+    private static void ApplyTaskMenuEnabledStates(ContextMenu menu, DragItemViewModel? currentItem)
+    {
+        var isResourceOptionItem = currentItem?.IsResourceOptionItem == true;
+        var canRunNow = !isResourceOptionItem && Instances.RootViewModel.Idle;
+        var canEdit = !isResourceOptionItem;
+
+        // 仅统计 MenuItem（不包含 Separator），顺序固定：
+        // 0 单独运行, 1 运行当前及后续勾选, 2 复制, 3 粘贴, 4 备注, 5 删除
+        var items = menu.Items?.OfType<MenuItem>().ToList();
+        if (items is not { Count: >= 6 })
+            return;
+
+        items[0].IsEnabled = canRunNow;
+        items[1].IsEnabled = canRunNow;
+        items[2].IsEnabled = canEdit;
+        items[3].IsEnabled = canEdit;
+        items[4].IsEnabled = canEdit;
+        items[5].IsEnabled = canEdit;
     }
 
     #endregion
@@ -1145,6 +1277,10 @@ public partial class TaskQueueView : UserControl
         {
             control = CreateInputControl(option, interfaceOption, source);
         }
+        else if (interfaceOption.IsCheckbox)
+        {
+            control = CreateCheckboxControl(option, interfaceOption);
+        }
         else if (interfaceOption.IsSwitch && interfaceOption.Cases.ShouldSwitchButton(out var yes, out var no))
         {
             // type 为 "switch" 时，强制使用 ToggleSwitch
@@ -1161,6 +1297,120 @@ public partial class TaskQueueView : UserControl
         }
 
         panel.Children.Add(control);
+    }
+
+    /// <summary>
+    /// 创建 checkbox 类型的多选 ToggleButton 控件
+    /// </summary>
+    private Control CreateCheckboxControl(
+        MaaInterface.MaaInterfaceSelectOption option,
+        MaaInterface.MaaInterfaceOption interfaceOption)
+    {
+        var container = new StackPanel { Margin = new Thickness(10, 6, 10, 6), Spacing = 4 };
+
+        interfaceOption.InitializeIcon();
+
+        // Header（显示 option 名称和图标）
+        var headerPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0)
+        };
+        var iconDisplay = new DisplayIcon
+        {
+            IconSize = 20,
+            Margin = new Thickness(0, 0, 6, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        iconDisplay.Bind(DisplayIcon.IconSourceProperty, new Binding(nameof(MaaInterface.MaaInterfaceOption.ResolvedIcon)) { Source = interfaceOption });
+        iconDisplay.Bind(IsVisibleProperty, new Binding(nameof(MaaInterface.MaaInterfaceOption.HasIcon)) { Source = interfaceOption });
+        headerPanel.Children.Add(iconDisplay);
+
+        var headerText = new TextBlock { FontSize = 14 };
+        headerText.Bind(TextBlock.TextProperty, new ResourceBindingWithFallback(interfaceOption.DisplayName, interfaceOption.Name));
+        headerText.Bind(TextBlock.ForegroundProperty, new DynamicResourceExtension("SukiLowText"));
+        headerPanel.Children.Add(headerText);
+
+        var tooltipText = GetTooltipText(interfaceOption.Description, interfaceOption.Document);
+        if (!string.IsNullOrWhiteSpace(tooltipText))
+        {
+            var docBlock = new TooltipBlock();
+            docBlock.Bind(TooltipBlock.TooltipTextProperty, new ResourceBinding(tooltipText));
+            headerPanel.Children.Add(docBlock);
+        }
+        container.Children.Add(headerPanel);
+
+        // 初始化 SelectedCases
+        option.SelectedCases ??= new List<string>(interfaceOption.DefaultCases ?? new List<string>());
+
+        // WrapPanel of ToggleButtons
+        var wrapPanel = new WrapPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 2, 0, 2)
+        };
+
+        if (interfaceOption.Cases != null)
+        {
+            foreach (var caseOption in interfaceOption.Cases)
+            {
+                caseOption.InitializeDisplayName();
+                var caseName = caseOption.Name ?? string.Empty;
+                var isChecked = option.SelectedCases.Contains(caseName);
+
+                var toggleBtn = new ToggleButton
+                {
+                    IsChecked = isChecked,
+                    Margin = new Thickness(2),
+                    Padding = new Thickness(8, 4, 8, 4),
+                };
+
+                var btnContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+
+                var btnIcon = new DisplayIcon
+                {
+                    IconSize = 16,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                btnIcon.Bind(DisplayIcon.IconSourceProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.ResolvedIcon)) { Source = caseOption });
+                btnIcon.Bind(IsVisibleProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.HasIcon)) { Source = caseOption });
+
+                var textBlock = new TextBlock
+                {
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                textBlock.Bind(TextBlock.TextProperty, new ResourceBindingWithFallback(caseOption.DisplayName, caseOption.Name));
+
+                btnContent.Children.Add(btnIcon);
+                btnContent.Children.Add(textBlock);
+                toggleBtn.Content = btnContent;
+
+                toggleBtn.Bind(IsEnabledProperty, new Binding("Idle") { Source = Instances.RootViewModel });
+                toggleBtn.Bind(ToolTip.TipProperty, new Binding(nameof(MaaInterface.MaaInterfaceOptionCase.DisplayDescription)) { Source = caseOption });
+
+                var capturedCaseName = caseName;
+                toggleBtn.IsCheckedChanged += (_, _) =>
+                {
+                    if (toggleBtn.IsChecked == true)
+                    {
+                        if (!option.SelectedCases.Contains(capturedCaseName))
+                            option.SelectedCases.Add(capturedCaseName);
+                    }
+                    else
+                    {
+                        option.SelectedCases.Remove(capturedCaseName);
+                    }
+                    SaveConfiguration();
+                };
+
+                wrapPanel.Children.Add(toggleBtn);
+            }
+        }
+
+        container.Children.Add(wrapPanel);
+        return container;
     }
 
     /// <summary>
@@ -2150,6 +2400,11 @@ public partial class TaskQueueView : UserControl
                     }
                 }
             }
+            else if (interfaceOption.IsCheckbox)
+            {
+                // checkbox 类型：初始化 SelectedCases
+                selectOption.SelectedCases = new List<string>(interfaceOption.DefaultCases ?? new List<string>());
+            }
             else
             {
                 // select/switch 类型：设置默认索引
@@ -2178,6 +2433,10 @@ public partial class TaskQueueView : UserControl
         if (subInterfaceOption.IsInput)
         {
             control = CreateInputControl(subOption, subInterfaceOption, source);
+        }
+        else if (subInterfaceOption.IsCheckbox)
+        {
+            control = CreateCheckboxControl(subOption, subInterfaceOption);
         }
         else if (subInterfaceOption.IsSwitch && subInterfaceOption.Cases.ShouldSwitchButton(out var yes1, out var no1))
         {
@@ -2212,16 +2471,44 @@ public partial class TaskQueueView : UserControl
     }
 
     /// <summary>
-    /// 保存资源选项配置到配置文件
+    /// 保存资源选项配置到配置文件（全局/控制器/资源选项分别保存到各自的 key）
     /// </summary>
     private void SaveResourceOptionConfiguration(TaskQueueViewModel vm)
     {
-        var resourceOptionItems = vm.TaskItemViewModels
+        var allItems = vm.TaskItemViewModels
             .Where(m => m.IsResourceOptionItem && m.ResourceItem?.SelectOptions != null)
+            .ToList();
+
+        // 保存全局选项到 GlobalOptionItems
+        var globalItem = allItems.FirstOrDefault(m => m.ResourceItem?.Name == "__GlobalOption__");
+        if (globalItem?.ResourceItem?.SelectOptions != null)
+        {
+            vm.Processor.InstanceConfiguration.SetValue(
+                ConfigurationKeys.GlobalOptionItems,
+                globalItem.ResourceItem.SelectOptions);
+        }
+
+        // 保存控制器选项到 ControllerOptionItems（Name 以 "__ControllerOption__" 开头）
+        const string controllerPrefix = "__ControllerOption__";
+        var controllerOptionItems = allItems
+            .Where(m => m.ResourceItem?.Name?.StartsWith(controllerPrefix) == true)
+            .ToDictionary(
+                m => m.ResourceItem!.Name![controllerPrefix.Length..],
+                m => m.ResourceItem!.SelectOptions!);
+        if (controllerOptionItems.Count > 0)
+        {
+            vm.Processor.InstanceConfiguration.SetValue(
+                ConfigurationKeys.ControllerOptionItems,
+                controllerOptionItems);
+        }
+
+        // 保存普通资源选项到 ResourceOptionItems（排除全局和控制器选项）
+        var resourceOptionItems = allItems
+            .Where(m => m.ResourceItem?.Name != "__GlobalOption__" &&
+                        m.ResourceItem?.Name?.StartsWith(controllerPrefix) != true)
             .ToDictionary(
                 m => m.ResourceItem!.Name ?? string.Empty,
                 m => m.ResourceItem!.SelectOptions!);
-
         vm.Processor.InstanceConfiguration.SetValue(ConfigurationKeys.ResourceOptionItems, resourceOptionItems);
     }
 
@@ -2469,7 +2756,28 @@ public partial class TaskQueueView : UserControl
         if (e.PropertyName == nameof(TaskQueueViewModel.CurrentController))
         {
             UpdateDeviceColumns();
+            // 控制器类型变化时，清空选项面板缓存，确保重新生成时应用新的过滤条件
+            ClearOptionPanelCaches();
         }
+
+        if (e.PropertyName == nameof(TaskQueueViewModel.CurrentResource))
+        {
+            // 资源变化时，清空选项面板缓存，确保重新生成时应用新的过滤条件
+            ClearOptionPanelCaches();
+        }
+    }
+
+    /// <summary>
+    /// 清空选项面板缓存，强制下次显示时重新生成（用于控制器/资源切换后刷新 option 列表和 introduction）
+    /// </summary>
+    private void ClearOptionPanelCaches()
+    {
+        CommonPanelCache.Clear();
+        AdvancedPanelCache.Clear();
+        IntroductionsCache.Clear();
+        CommonOptionSettings?.Children.Clear();
+        AdvancedOptionSettings?.Children.Clear();
+        Introduction.Markdown = "";
     }
 
     private void OnLoaded(object? sender, RoutedEventArgs e)

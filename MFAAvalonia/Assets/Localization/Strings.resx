@@ -161,6 +161,9 @@
     <data name="CheckMFA" xml:space="preserve">
         <value>检查软件</value>
     </data>
+    <data name="CheckUpdate" xml:space="preserve">
+        <value>检查更新</value>
+    </data>
     <data name="CheckResource" xml:space="preserve">
         <value>检查资源</value>
     </data>
@@ -168,16 +171,25 @@
         <value>目前剪贴板中数据不可转换为文本</value>
     </data>
     <data name="CloseEmulator" xml:space="preserve">
-        <value>关闭游戏</value>
+        <value>关闭模拟器</value>
     </data>
     <data name="CloseEmulatorAndMFA" xml:space="preserve">
-        <value>关闭MFA和游戏</value>
+        <value>关闭模拟器和本程序</value>
     </data>
     <data name="CloseEmulatorAndRestartMFA" xml:space="preserve">
-        <value>重启MFA和关闭游戏</value>
+        <value>重启本程序并关闭模拟器</value>
     </data>
     <data name="CloseMFA" xml:space="preserve">
-        <value>关闭MFA</value>
+        <value>关闭本程序</value>
+    </data>
+    <data name="CloseTargetProgram" xml:space="preserve">
+        <value>关闭目标程序</value>
+    </data>
+    <data name="CloseTargetProgramAndMFA" xml:space="preserve">
+        <value>关闭目标程序和本程序</value>
+    </data>
+    <data name="CloseTargetProgramAndRestartMFA" xml:space="preserve">
+        <value>重启本程序并关闭目标程序</value>
     </data>
     <data name="ColorPickerTitle" xml:space="preserve">
         <value>取色器</value>
@@ -221,8 +233,11 @@
     <data name="ConnectingEmulatorOrWindow" xml:space="preserve">
         <value>连接{0}时发生错误！</value>
     </data>
-    <data name="ConnectingTo" xml:space="preserve">
+  <data name="ConnectingTo" xml:space="preserve">
         <value>正在连接至{0}......</value>
+    </data>
+    <data name="ConnectingInProgress" xml:space="preserve">
+        <value>正在连接中，请稍候...</value>
     </data>
     <data name="Connection" xml:space="preserve">
         <value>连接</value>
@@ -520,7 +535,7 @@
         <value>强制定时启动</value>
     </data>
     <data name="ForceScheduledStartTip" xml:space="preserve">
-        <value>停止当前任务，重启游戏并开始新任务</value>
+        <value>停止当前任务，并在停止完成后开始新任务</value>
     </data>
     <data name="GameResourceUpdated" xml:space="preserve">
         <value>游戏资源已更新，请重启软件。</value>
@@ -573,8 +588,20 @@
     <data name="HotKeyOccupiedWarning" xml:space="preserve">
         <value>⚠️ 该热键已被占用</value>
     </data>
+    <data name="HotKeyOccupiedBy" xml:space="preserve">
+        <value>⚠️ 该热键已被 {0} 占用</value>
+    </data>
     <data name="HotKeyPressing" xml:space="preserve">
-        <value>按下任意组合键...</value>
+        <value>按下任意键...</value>
+    </data>
+    <data name="UnknownItem" xml:space="preserve">
+        <value>未知项</value>
+    </data>
+    <data name="GlobalConfigFileAccessError" xml:space="preserve">
+        <value>全局配置文件无法访问：{0}\n占用/错误详情：{1}</value>
+    </data>
+    <data name="GlobalConfigFileReasonUnknown" xml:space="preserve">
+        <value>未知原因</value>
     </data>
     <data name="HotKeySettings" xml:space="preserve">
         <value>热键设置</value>
@@ -708,6 +735,9 @@
     <data name="NoEmulatorFound" xml:space="preserve">
         <value>未找到模拟器！</value>
     </data>
+    <data name="NoEmulatorFoundPlaceholder" xml:space="preserve">
+        <value>未找到模拟器</value>
+    </data>
     <data name="None" xml:space="preserve">
         <value>无</value>
     </data>
@@ -716,6 +746,9 @@
     </data>
     <data name="NoWindowFound" xml:space="preserve">
         <value>未找到窗口!</value>
+    </data>
+    <data name="NoWindowFoundPlaceholder" xml:space="preserve">
+        <value>未找到窗口</value>
     </data>
     <data name="Nox" xml:space="preserve">
         <value>夜神模拟器</value>
@@ -729,6 +762,12 @@
     <data name="OperateController" xml:space="preserve">
         <value>选择要操作的控制器</value>
     </data>
+    <data name="PleaseSelectEmulator" xml:space="preserve">
+        <value>请选择模拟器</value>
+    </data>
+    <data name="PleaseSelectWindow" xml:space="preserve">
+        <value>请选择窗口</value>
+    </data>
     <data name="Paste" xml:space="preserve">
         <value>粘贴</value>
     </data>
@@ -740,6 +779,9 @@
     </data>
     <data name="PerformanceSettings" xml:space="preserve">
         <value>性能设置</value>
+    </data>
+    <data name="PerformanceBenchmark" xml:space="preserve">
+        <value>性能基准</value>
     </data>
     <data name="PipelineLoadError" xml:space="preserve">
         <value>载入Pipeline文件时出现错误: {0}</value>
@@ -794,6 +836,12 @@
     </data>
     <data name="ResourceName" xml:space="preserve">
         <value>资源名称</value>
+    </data>
+    <data name="GlobalOption" xml:space="preserve">
+        <value>全局任务配置</value>
+    </data>
+    <data name="ControllerPresetConfig" xml:space="preserve">
+        <value>控制器预设配置</value>
     </data>
     <data name="ResourceOption" xml:space="preserve">
         <value>资源类型</value>
@@ -887,6 +935,9 @@
     </data>
     <data name="ShutDown" xml:space="preserve">
         <value>关机</value>
+    </data>
+    <data name="ShutDownOnce" xml:space="preserve">
+        <value>关机（仅一次）</value>
     </data>
     <data name="SliderControlTitle" xml:space="preserve">
         <value>滑动获取器</value>
@@ -999,11 +1050,14 @@
     <data name="Timer" xml:space="preserve">
         <value>定时</value>
     </data>
+    <data name="TimerAction" xml:space="preserve">
+        <value>操作类型</value>
+    </data>
     <data name="TimerCustomConfig" xml:space="preserve">
         <value>自定义配置选择</value>
     </data>
     <data name="TimerCustomConfigTip" xml:space="preserve">
-        <value>将提前两分钟重启并切换配置</value>
+        <value>开启后，定时任务将按各自选择的配置执行，而不是使用当前激活的配置</value>
     </data>
     <data name="Tip" xml:space="preserve">
         <value>提示</value>
@@ -1116,6 +1170,15 @@
     <data name="ConfigurePrimaryAccent" xml:space="preserve">
         <value>配置主色调与强调色组合，并应用至应用程序</value>
     </data>
+    <data name="CustomThemeName" xml:space="preserve">
+        <value>主题名称</value>
+    </data>
+    <data name="CustomThemePrimaryColor" xml:space="preserve">
+        <value>主色调</value>
+    </data>
+    <data name="CustomThemeAccentColor" xml:space="preserve">
+        <value>强调色</value>
+    </data>
     <data name="ColorThemeAlreadyExists" xml:space="preserve">
         <value>该颜色主题已存在</value>
     </data>
@@ -1218,6 +1281,18 @@
     <data name="ExportLog" xml:space="preserve">
         <value>导出日志</value>
     </data>
+    <data name="ExportLogInProgress" xml:space="preserve">
+        <value>正在导出日志，请稍候...</value>
+    </data>
+    <data name="ExportLogNoEligibleFiles" xml:space="preserve">
+        <value>未找到符合条件的日志文件或图片。</value>
+    </data>
+    <data name="ExportLogSuccess" xml:space="preserve">
+        <value>日志导出成功</value>
+    </data>
+    <data name="ExportLogFailed" xml:space="preserve">
+        <value>日志导出失败</value>
+    </data>
     <data name="ClearCache" xml:space="preserve">
         <value>清理缓存</value>
     </data>
@@ -1226,6 +1301,12 @@
     </data>
     <data name="ClearCacheFailed" xml:space="preserve">
         <value>清理缓存失败</value>
+    </data>
+    <data name="ClearCacheStopInstanceFailed" xml:space="preserve">
+        <value>停止实例 {0} 失败</value>
+    </data>
+    <data name="ClearCacheInstanceStillUsingResource" xml:space="preserve">
+        <value>实例 {0} 仍在占用资源</value>
     </data>
     <data name="Warning" xml:space="preserve">
         <value>警告</value>
@@ -1269,6 +1350,9 @@
     <data name="ScreenshotEmpty" xml:space="preserve">
         <value>当前截图为空! 请点击【截图测试】获取截图
 </value>
+    </data>
+    <data name="ScreenshotPlaceholder" xml:space="preserve">
+        <value>暂无截图</value>
     </data>
     <data name="SaveScreenshot" xml:space="preserve">
         <value>保存截图</value>
@@ -1484,14 +1568,27 @@
         <value>未选择设备，请先选择设备</value>
     </data>
 
+    <data name="Preset" xml:space="preserve">
+        <value>预设</value>
+    </data>
+
     <data name="ResourcePresetConfig" xml:space="preserve">
         <value>资源预设配置</value>
     </data>
     <data name="UseFingerprintMatching" xml:space="preserve">
         <value>使用指纹匹配设备</value>
     </data>
-    <data name="LiveView" xml:space="preserve">
+<data name="LiveView" xml:space="preserve">
         <value>实时视图</value>
+    </data>
+    <data name="LiveViewNoImageReasonAdb" xml:space="preserve">
+        <value>可能原因: 模拟器窗口最小化/屏幕关闭、截图方式不兼容、设备未完全启动</value>
+    </data>
+    <data name="LiveViewNoImageReasonWindow" xml:space="preserve">
+        <value>可能原因: 目标窗口最小化/隐藏/被遮挡、截图方式不兼容</value>
+    </data>
+    <data name="LiveViewNoImageWarning" xml:space="preserve">
+        <value>实时画面已连接但无法获取画面 ({0}), {1}</value>
     </data>
     <data name="Running" xml:space="preserve">
         <value>运行中</value>
@@ -1508,8 +1605,11 @@
     <data name="PlayCoverBundleIdentifier" xml:space="preserve">
         <value>应用标识符</value>
     </data>
-    <data name="PlayCoverAddressEmpty" xml:space="preserve">
+<data name="PlayCoverAddressEmpty" xml:space="preserve">
         <value>PlayCover 地址不能为空</value>
+    </data>
+    <data name="PlayCoverEditor" xml:space="preserve">
+        <value>PlayCover 编辑器</value>
     </data>
     <data name="Reconnect" xml:space="preserve">
         <value>重新连接</value>
@@ -1530,7 +1630,7 @@
         <value>重命名</value>
     </data>
     <data name="TaskRenamePlaceholder" xml:space="preserve">
-        <value>输入自定义显示名称（可选）</value>
+        <value>输入配置名称</value>
     </data>
     <data name="TaskRemark" xml:space="preserve">
         <value>备注</value>
@@ -1829,6 +1929,15 @@
     <data name="SpecialTask_WaitForExit" xml:space="preserve">
         <value>等待程序退出</value>
     </data>
+    <data name="SpecialTask_KillSelfProcess" xml:space="preserve">
+        <value>结束自身进程</value>
+    </data>
+    <data name="SpecialTask_KillSelfProcessDesc" xml:space="preserve">
+        <value>开启时结束本程序自身进程；关闭后可输入其他进程名称来结束</value>
+    </data>
+    <data name="SpecialTask_ProcessSettings" xml:space="preserve">
+        <value>进程设置</value>
+    </data>
     <data name="SpecialTask_ProcessName" xml:space="preserve">
         <value>进程名称</value>
     </data>
@@ -1844,8 +1953,11 @@
     <data name="SpecialTask_SelectProgram" xml:space="preserve">
         <value>选择程序</value>
     </data>
+    <data name="SpecialTask_ProcessNamePlaceholder" xml:space="preserve">
+        <value>如 notepad.exe</value>
+    </data>
     <data name="SpecialTask_ProcessNameExample" xml:space="preserve">
-        <value>例如: notepad</value>
+        <value>如 notepad.exe</value>
     </data>
     <data name="SpecialTask_Shutdown" xml:space="preserve">
         <value>关机</value>
@@ -1865,6 +1977,12 @@
     <data name="InstanceAddTooltip" xml:space="preserve">
         <value>添加实例</value>
     </data>
+    <data name="InstanceAddFollowLast" xml:space="preserve">
+        <value>跟随最右侧配置</value>
+    </data>
+    <data name="InstancePresetTaskCountFormat" xml:space="preserve">
+        <value>{0}/{1} 个任务</value>
+    </data>
     <data name="InstanceCannotCloseLast" xml:space="preserve">
         <value>不能关闭最后一个实例</value>
     </data>
@@ -1874,6 +1992,87 @@
     <data name="InstanceCloseTitle" xml:space="preserve">
         <value>关闭实例</value>
     </data>
+    <data name="InstanceRunningCannotClose" xml:space="preserve">
+        <value>实例正在运行中，请先停止任务后再关闭</value>
+    </data>
+    <data name="InstanceTimerReassigned" xml:space="preserve">
+        <value>实例 "{0}" 已关闭，其关联的定时任务已自动转移到其他实例</value>
+    </data>
+    <data name="MonitorSortDefault" xml:space="preserve">
+        <value>默认</value>
+    </data>
+    <data name="MonitorSortByStatus" xml:space="preserve">
+        <value>按状态</value>
+    </data>
+    <data name="MonitorSortByName" xml:space="preserve">
+        <value>按名称</value>
+    </data>
+    <data name="MonitorSortByCreatedTime" xml:space="preserve">
+        <value>按创建时间</value>
+    </data>
+    <data name="MonitorForceRefresh" xml:space="preserve">
+        <value>强制刷新</value>
+    </data>
+    <data name="MonitorFullScreen" xml:space="preserve">
+        <value>全屏显示</value>
+    </data>
+    <data name="MonitorCopyScreenshot" xml:space="preserve">
+        <value>复制截图</value>
+    </data>
+    <data name="MonitorDisconnect" xml:space="preserve">
+        <value>断开连接</value>
+    </data>
+    <data name="MonitorTryConnect" xml:space="preserve">
+        <value>尝试连接</value>
+    </data>
+    <data name="MonitorLiveBadge" xml:space="preserve">
+        <value>LIVE</value>
+    </data>
+    <data name="ZoomOut" xml:space="preserve">
+        <value>缩小</value>
+    </data>
+    <data name="ZoomIn" xml:space="preserve">
+        <value>放大</value>
+    </data>
+    <data name="TimerStopConnectedProcess" xml:space="preserve">
+        <value>关闭连接的进程</value>
+    </data>
+    <data name="TimerStopMFA" xml:space="preserve">
+        <value>关闭本程序</value>
+    </data>
+    <data name="AddTimer" xml:space="preserve">
+        <value>添加定时</value>
+    </data>
+    <data name="RemoveTimer" xml:space="preserve">
+        <value>删除定时</value>
+    </data>
+  <data name="InstanceDropdownSearch" xml:space="preserve">
+    <value>搜索配置</value>
+  </data>
+  <data name="InstanceDropdownOpenConfigs" xml:space="preserve">
+    <value>打开配置</value>
+  </data>
+  <data name="InstanceDropdownRecentClosed" xml:space="preserve">
+    <value>最近关闭</value>
+  </data>
+  <data name="InstanceDropdownNoOpenConfigs" xml:space="preserve">
+    <value>暂无打开的配置</value>
+  </data>
+  <data name="InstanceDropdownNoRecentClosed" xml:space="preserve">
+    <value>暂无最近关闭记录</value>
+  </data>
+  <data name="InstanceDropdownCloseConfig" xml:space="preserve">
+    <value>关闭配置</value>
+  </data>
+  <data name="InstanceDropdownJustNow" xml:space="preserve">
+    <value>刚刚</value>
+  </data>
+</root>
 
-    </root>
+
+
+
+
+
+
 

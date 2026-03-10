@@ -138,4 +138,57 @@ public static class GlobalConfiguration
     {
         SetValue($"Timer.Timer{i + 1}.Schedule", value);
     }
+
+    public static string GetTimerAction(int i, string defaultValue)
+    {
+        return GetValue($"Timer.Timer{i + 1}.Action", defaultValue);
+    }
+
+    public static void SetTimerAction(int i, string value)
+    {
+        SetValue($"Timer.Timer{i + 1}.Action", value);
+    }
+
+    public static int GetTimerCount(int defaultValue = 8)
+    {
+        var val = GetValue("Timer.Count", defaultValue.ToString());
+        return int.TryParse(val, out var count) ? count : defaultValue;
+    }
+
+    public static void SetTimerCount(int value)
+    {
+        SetValue("Timer.Count", value.ToString());
+    }
+
+    public static string GetTimerStopConnectedProcess(int i, string defaultValue)
+    {
+        return GetValue($"Timer.Timer{i + 1}.StopConnectedProcess", defaultValue);
+    }
+
+    public static void SetTimerStopConnectedProcess(int i, string value)
+    {
+        SetValue($"Timer.Timer{i + 1}.StopConnectedProcess", value);
+    }
+
+    public static string GetTimerStopMFA(int i, string defaultValue)
+    {
+        return GetValue($"Timer.Timer{i + 1}.StopMFA", defaultValue);
+    }
+
+    public static void SetTimerStopMFA(int i, string value)
+    {
+        SetValue($"Timer.Timer{i + 1}.StopMFA", value);
+    }
+
+    public static void RemoveTimerConfig(int i)
+    {
+        // 清除指定定时器的所有配置项
+        SetValue($"Timer.Timer{i + 1}", string.Empty);
+        SetValue($"Timer.Timer{i + 1}Time", string.Empty);
+        SetValue($"Timer.Timer{i + 1}.Config", string.Empty);
+        SetValue($"Timer.Timer{i + 1}.Schedule", string.Empty);
+        SetValue($"Timer.Timer{i + 1}.Action", string.Empty);
+        SetValue($"Timer.Timer{i + 1}.StopConnectedProcess", string.Empty);
+        SetValue($"Timer.Timer{i + 1}.StopMFA", string.Empty);
+    }
 }

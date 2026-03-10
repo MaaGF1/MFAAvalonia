@@ -73,6 +73,8 @@
         <Setter Property="Foreground" Value="{DynamicResource SukiLowText}" />
         <Setter Property="CornerRadius" Value="10" />
         <Setter Property="Padding" Value="0" />
+        <Setter Property="Opacity" Value="0" />
+        <Setter Property="IsHitTestVisible" Value="False" />
         <Setter Property="Template">
             <ControlTemplate>
                 <Border CornerRadius="{TemplateBinding CornerRadius}"
@@ -175,7 +177,8 @@
                         BorderThickness="{TemplateBinding BorderThickness}"
                         CornerRadius="{TemplateBinding CornerRadius}">
                     <Panel>
-                        <Panel Margin="{TemplateBinding Padding}">
+                        <Panel Margin="{TemplateBinding Padding}"
+                               ClipToBounds="True">
                             <ContentPresenter Name="PART_ContentPresenter"
                                               Margin="0,0,18,0"
                                               ContentTemplate="{TemplateBinding HeaderTemplate}"
@@ -224,6 +227,10 @@
             <Setter Property="IsVisible" Value="True" />
             <Setter Property="Fill" Value="{DynamicResource TabBarHoverBackground}" />
         </Style>
+        <Style Selector="^:pointerover /template/ Button#PART_CloseButton">
+            <Setter Property="Opacity" Value="1" />
+            <Setter Property="IsHitTestVisible" Value="True" />
+        </Style>
         <Style Selector="^:pointerover">
             <Setter Property="Foreground" Value="{DynamicResource SukiText}" />
         </Style>
@@ -235,6 +242,11 @@
 
         <!-- PointerOver: 隐藏分隔线 -->
         <Style Selector="^:pointerover /template/ Border#PART_RightBorder">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+
+        <!-- 由 InstanceTabsControl 显式控制：隐藏右分隔线（包括“当前标签左侧”那条） -->
+        <Style Selector="^:hide-right-separator /template/ Border#PART_RightBorder">
             <Setter Property="IsVisible" Value="False" />
         </Style>
 
@@ -265,6 +277,18 @@
                     <StackPanel Orientation="Horizontal">
                         <ItemsPresenter Name="PART_ItemsPresenter"
                                         ItemsPanel="{TemplateBinding ItemsPanel}" />
+
+                        <!-- 溢出计数按钮：显示被隐藏的标签数量 -->
+                        <Button Name="PART_OverflowButton"
+                                Theme="{StaticResource DropdownToggleButton}"
+                                VerticalAlignment="Center"
+                                Margin="8,0,2,4"
+                                IsVisible="False">
+                            <TextBlock Name="PART_OverflowText"
+                                       FontSize="11"
+                                       VerticalAlignment="Center"
+                                       HorizontalAlignment="Center" />
+                        </Button>
 
                         <Button Name="PART_AddItemButton"
                                 Command="{Binding AddItemCommand, RelativeSource={RelativeSource TemplatedParent}}"
